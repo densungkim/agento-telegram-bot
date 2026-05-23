@@ -182,6 +182,26 @@ jobs:
           "$JAVA_COMMAND" -version >/dev/null 2>&1 || { echo "Java is not available in this non-interactive SSH session"; echo "PATH=$PATH"; exit 1; }
           "$CODEX_COMMAND" --version >/dev/null 2>&1 || { echo "Codex CLI is not available. Install or authenticate it on VPS first."; echo "PATH=$PATH"; exit 1; }
 
+          LEGACY_APP_DIR="$HOME"
+          if [ "$LEGACY_APP_DIR" != "$APP_DIR" ] && [ -f "$LEGACY_APP_DIR/app.pid" ]; then
+            LEGACY_PID=$(cat "$LEGACY_APP_DIR/app.pid" || true)
+            if [ -n "${LEGACY_PID:-}" ] && ps -p "$LEGACY_PID" >/dev/null 2>&1; then
+              kill "$LEGACY_PID" || true
+              sleep 2
+            fi
+            if [ -n "${LEGACY_PID:-}" ] && ps -p "$LEGACY_PID" >/dev/null 2>&1; then
+              kill -9 "$LEGACY_PID" || true
+            fi
+          fi
+          if [ "$LEGACY_APP_DIR" != "$APP_DIR" ]; then
+            rm -f "$LEGACY_APP_DIR/app.jar" \
+                  "$LEGACY_APP_DIR/app.env" \
+                  "$LEGACY_APP_DIR/app.log" \
+                  "$LEGACY_APP_DIR/app.pid" \
+                  "$LEGACY_APP_DIR/agento-bot-status.sh" \
+                  "$LEGACY_APP_DIR/agento-bot-stop.sh"
+          fi
+
           if [ -f app.pid ]; then
             OLD_PID=$(cat app.pid || true)
             if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
