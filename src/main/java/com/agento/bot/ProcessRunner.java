@@ -21,6 +21,7 @@ public class ProcessRunner {
     public CommandResult run(List<String> command, File workdir, Duration timeout) {
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.directory(workdir);
+        processBuilder.redirectInput(ProcessBuilder.Redirect.DISCARD);
         processBuilder.redirectErrorStream(true);
 
         try {

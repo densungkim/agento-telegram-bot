@@ -3,6 +3,9 @@ package com.agento.bot;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,27 +29,47 @@ public class CodexRunner {
             return "CODEX_WORKDIR does not exist or is not a directory: " + workdir.getAbsolutePath();
         }
 
-        List<String> command = buildCodexCommand(userPrompt);
-        CommandResult result = processRunner.run(
-                command,
-                workdir,
-                Duration.ofSeconds(properties.codex().timeoutSeconds())
-        );
+        Path lastMessageFile = null;
+        try {
+            lastMessageFile = Files.createTempFile("agento-codex-last-message-", ".txt");
+            List<String> command = buildCodexCommand(userPrompt, lastMessageFile);
+            CommandResult result = processRunner.run(
+                    command,
+                    workdir,
+                    Duration.ofSeconds(properties.codex().timeoutSeconds())
+            );
 
-        if (result.timedOut()) {
-            return limitOutput("Codex stopped by timeout after " + properties.codex().timeoutSeconds() + " seconds.\n\nOutput before stop:\n" + result.output());
+            String lastMessage = readLastMessage(lastMessageFile);
+
+            if (result.timedOut()) {
+                return limitOutput("Codex timed out after " + properties.codex().timeoutSeconds() + " seconds.\n\n" + firstNotBlank(lastMessage, result.output()));
+            }
+
+            if (result.exitCode() == 0 && isNotBlank(lastMessage)) {
+                return limitOutput(lastMessage);
+            }
+
+            if (isNotBlank(lastMessage)) {
+                return limitOutput(lastMessage + "\n\nCodex exit code: " + result.exitCode());
+            }
+
+            return limitOutput("Codex exit code: " + result.exitCode() + "\n\n" + cleanOutput(result.output()));
+        } catch (IOException e) {
+            return "Failed to prepare Codex output file: " + e.getMessage();
+        } finally {
+            deleteIfExists(lastMessageFile);
         }
-
-        return limitOutput("Codex finished. Exit code: " + result.exitCode() + "\n\n" + cleanOutput(result.output()));
     }
 
-    private List<String> buildCodexCommand(String userPrompt) {
+    private List<String> buildCodexCommand(String userPrompt, Path lastMessageFile) {
         CodexSettings settings = settingsService.current();
         List<String> command = new ArrayList<>();
         command.add(properties.codex().command());
         command.add("exec");
         command.add("--color");
         command.add("never");
+        command.add("--output-last-message");
+        command.add(lastMessageFile.toString());
         command.add("--cd");
         command.add(properties.codex().workdir());
 
@@ -79,14 +102,9 @@ public class CodexRunner {
         return """
                 %s
 
-                Codex working directory is already selected: %s.
-                The Telegram bot service is running as a jar on a VPS from the home directory of the agento user.
-                Work in the current directory and stay within the permissions of the agento user.
-                In your final answer, provide a short report: what you checked, what you changed, which commands you ran, and what should be done next.
-
                 User task from Telegram:
                 %s
-                """.formatted(properties.codex().systemPrompt(), properties.codex().workdir(), userPrompt);
+                """.formatted(properties.codex().systemPrompt(), userPrompt);
     }
 
     private String cleanOutput(String output) {
@@ -94,6 +112,28 @@ public class CodexRunner {
             return "Codex did not return any text output.";
         }
         return output.strip();
+    }
+
+    private String readLastMessage(Path lastMessageFile) throws IOException {
+        if (lastMessageFile == null || !Files.isRegularFile(lastMessageFile)) {
+            return "";
+        }
+        return Files.readString(lastMessageFile).strip();
+    }
+
+    private String firstNotBlank(String first, String second) {
+        return isNotBlank(first) ? first : cleanOutput(second);
+    }
+
+    private void deleteIfExists(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // Temporary output files should not block a Telegram response.
+        }
     }
 
     private String limitOutput(String output) {
