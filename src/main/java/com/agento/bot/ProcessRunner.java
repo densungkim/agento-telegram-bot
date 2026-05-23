@@ -26,6 +26,7 @@ public class ProcessRunner {
         try {
             Process process = processBuilder.start();
             activeProcess.set(process);
+            closeProcessInput(process);
 
             CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(process));
             boolean finished = process.waitFor(timeout.toSeconds(), TimeUnit.SECONDS);
@@ -65,6 +66,10 @@ public class ProcessRunner {
             process.destroyForcibly();
         }
         return true;
+    }
+
+    private void closeProcessInput(Process process) throws IOException {
+        process.getOutputStream().close();
     }
 
     private String readOutputWithTimeout(CompletableFuture<String> outputFuture) throws Exception {
