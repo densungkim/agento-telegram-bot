@@ -1,0 +1,188 @@
+name: Build and deploy Agento Bot
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Set up Maven 3.9.16
+        run: |
+          set -euo pipefail
+          curl -fsSL https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz -o /tmp/apache-maven.tar.gz
+          tar -xzf /tmp/apache-maven.tar.gz -C /tmp
+          echo "/tmp/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
+
+      - name: Build jar
+        run: |
+          mvn -version
+          mvn -B clean package -DskipTests
+
+      - name: Prepare SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/agento_deploy_key
+          chmod 600 ~/.ssh/agento_deploy_key
+
+          if [ -z "${VPS_PORT:-}" ]; then
+            VPS_PORT=22
+          fi
+
+          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Prepare deployment files
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_COMMAND: ${{ secrets.CODEX_COMMAND }}
+          CODEX_WORKDIR: ${{ secrets.CODEX_WORKDIR }}
+          CODEX_TIMEOUT_SECONDS: ${{ secrets.CODEX_TIMEOUT_SECONDS }}
+          CODEX_MAX_OUTPUT_CHARS: ${{ secrets.CODEX_MAX_OUTPUT_CHARS }}
+          CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
+          CODEX_REASONING_EFFORT: ${{ secrets.CODEX_REASONING_EFFORT }}
+          CODEX_ACCESS_MODE: ${{ secrets.CODEX_ACCESS_MODE }}
+          CODEX_APPROVAL_POLICY: ${{ secrets.CODEX_APPROVAL_POLICY }}
+          CODEX_SETTINGS_FILE: ${{ secrets.CODEX_SETTINGS_FILE }}
+          CODEX_SYSTEM_PROMPT: ${{ secrets.CODEX_SYSTEM_PROMPT }}
+        run: |
+          set -euo pipefail
+          mkdir -p deploy
+          cp target/agento-telegram-bot-0.0.1-SNAPSHOT.jar deploy/app.jar
+          cp scripts/agento-bot-status.sh deploy/agento-bot-status.sh
+          cp scripts/agento-bot-stop.sh deploy/agento-bot-stop.sh
+
+          : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN secret is required}"
+          : "${TELEGRAM_ALLOWED_CHAT_ID:?TELEGRAM_ALLOWED_CHAT_ID secret is required}"
+
+          : "${CODEX_COMMAND:=codex}"
+          : "${CODEX_WORKDIR:=/home/agento}"
+          : "${CODEX_TIMEOUT_SECONDS:=900}"
+          : "${CODEX_MAX_OUTPUT_CHARS:=30000}"
+          : "${CODEX_MODEL:=gpt-5.5}"
+          : "${CODEX_REASONING_EFFORT:=medium}"
+          : "${CODEX_ACCESS_MODE:=full-access}"
+          : "${CODEX_APPROVAL_POLICY:=never}"
+          : "${CODEX_SETTINGS_FILE:=./agento-settings.properties}"
+
+          write_env() {
+            local key="$1"
+            local value="${!key:-}"
+            printf '%s=%q\n' "$key" "$value" >> deploy/app.env
+          }
+
+          write_env_if_set() {
+            local key="$1"
+            local value="${!key:-}"
+            if [ -n "$value" ]; then
+              printf '%s=%q\n' "$key" "$value" >> deploy/app.env
+            fi
+          }
+
+          : > deploy/app.env
+          write_env TELEGRAM_BOT_TOKEN
+          write_env TELEGRAM_ALLOWED_CHAT_ID
+          write_env_if_set OPENAI_API_KEY
+          write_env CODEX_COMMAND
+          write_env CODEX_WORKDIR
+          write_env CODEX_TIMEOUT_SECONDS
+          write_env CODEX_MAX_OUTPUT_CHARS
+          write_env CODEX_MODEL
+          write_env CODEX_REASONING_EFFORT
+          write_env CODEX_ACCESS_MODE
+          write_env CODEX_APPROVAL_POLICY
+          write_env CODEX_SETTINGS_FILE
+          write_env_if_set CODEX_SYSTEM_PROMPT
+
+          printf '%s=%q\n' CODEX_SKIP_GIT_REPO_CHECK true >> deploy/app.env
+
+      - name: Copy files to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          : "${VPS_USER:=agento}"
+          : "${VPS_PORT:=22}"
+          : "${VPS_APP_DIR:=/home/agento}"
+
+          ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR'"
+          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/"
+
+      - name: Restart bot on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          : "${VPS_USER:=agento}"
+          : "${VPS_PORT:=22}"
+          : "${VPS_APP_DIR:=/home/agento}"
+
+          ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+          chmod +x agento-bot-status.sh agento-bot-stop.sh
+
+          if [ -f app.pid ]; then
+            OLD_PID=$(cat app.pid || true)
+            if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
+              kill "$OLD_PID" || true
+              sleep 2
+            fi
+            if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
+              kill -9 "$OLD_PID" || true
+            fi
+            rm -f app.pid
+          fi
+
+          set -a
+          # shellcheck disable=SC1091
+          source app.env
+          set +a
+
+          if [ "${CODEX_COMMAND:-codex}" = "codex" ] && ! command -v codex >/dev/null 2>&1; then
+            FOUND_CODEX=$(find "$HOME" -type f -path '*/bin/codex' 2>/dev/null | head -n 1 || true)
+            if [ -n "$FOUND_CODEX" ]; then
+              export CODEX_COMMAND="$FOUND_CODEX"
+            fi
+          fi
+
+          command -v java >/dev/null 2>&1 || { echo "Java is not installed on VPS"; exit 1; }
+          "$CODEX_COMMAND" --version >/dev/null 2>&1 || { echo "Codex CLI is not available. Install it on VPS first."; exit 1; }
+
+          nohup java -jar app.jar > app.log 2>&1 &
+          echo $! > app.pid
+          sleep 3
+
+          if ! ps -p "$(cat app.pid)" >/dev/null 2>&1; then
+            echo "Bot failed to start. Last logs:"
+            tail -n 100 app.log || true
+            exit 1
+          fi
+
+          echo "Agento bot started. PID=$(cat app.pid)"
+          REMOTE

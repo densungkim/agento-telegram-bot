@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: agento-telegram-bot
+  main:
+    web-application-type: none
+
+agentobot:
+  telegram:
+    token: ${TELEGRAM_BOT_TOKEN}
+    allowed-chat-id: ${TELEGRAM_ALLOWED_CHAT_ID:0}
+    polling-timeout-seconds: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:20}
+    message-max-length: ${TELEGRAM_MESSAGE_MAX_LENGTH:3900}
+
+  codex:
+    command: ${CODEX_COMMAND:codex}
+    workdir: ${CODEX_WORKDIR:/home/agento}
+    timeout-seconds: ${CODEX_TIMEOUT_SECONDS:900}
+    max-output-chars: ${CODEX_MAX_OUTPUT_CHARS:30000}
+    model: ${CODEX_MODEL:gpt-5.5}
+    reasoning-effort: ${CODEX_REASONING_EFFORT:medium}
+    access-mode: ${CODEX_ACCESS_MODE:full-access}
+    approval-policy: ${CODEX_APPROVAL_POLICY:never}
+    skip-git-repo-check: ${CODEX_SKIP_GIT_REPO_CHECK:true}
+    settings-file: ${CODEX_SETTINGS_FILE:./agento-settings.properties}
+    allowed-models: ${CODEX_ALLOWED_MODELS:gpt-5.5,gpt-5.4,gpt-5.4-mini,gpt-5.3-codex,gpt-5.2}
+    allowed-reasoning-efforts: ${CODEX_ALLOWED_REASONING_EFFORTS:low,medium,high,xhigh}
+    allowed-access-modes: ${CODEX_ALLOWED_ACCESS_MODES:read-only,workspace,full-access,bypass}
+    allowed-approval-policies: ${CODEX_ALLOWED_APPROVAL_POLICIES:untrusted,on-request,never}
+    system-prompt: '${CODEX_SYSTEM_PROMPT:Ты работаешь на реальном VPS под Linux. Это не одноразовая песочница: команды могут менять файлы пользователя agento, Docker containers, Docker images, Docker volumes, systemd user services, сетевые настройки и установленные пакеты. Действуй практично, но осторожно: сначала осматривай состояние, не раскрывай секреты и токены, не удаляй базы данных, volumes, ключи, домашние каталоги и production данные без прямого запроса пользователя. Если задача явно просит установить, настроить или исправить что-то, выполняй нужные команды в пределах прав пользователя agento.}'
