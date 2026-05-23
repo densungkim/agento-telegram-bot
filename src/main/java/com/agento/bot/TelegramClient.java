@@ -44,6 +44,21 @@ public class TelegramClient {
                 .body(JsonNode.class);
     }
 
+    public void setCommands(List<BotCommand> commands) {
+        List<Map<String, String>> commandPayload = commands.stream()
+                .map(command -> Map.of(
+                        "command", command.command(),
+                        "description", command.description()
+                ))
+                .toList();
+
+        restClient.post()
+                .uri("/setMyCommands")
+                .body(Map.of("commands", commandPayload))
+                .retrieve()
+                .toBodilessEntity();
+    }
+
     public void sendMessage(long chatId, String text) {
         sendMessage(chatId, text, null);
     }
@@ -109,5 +124,8 @@ public class TelegramClient {
             index = end;
         }
         return parts;
+    }
+
+    public record BotCommand(String command, String description) {
     }
 }

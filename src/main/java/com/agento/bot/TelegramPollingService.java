@@ -1,6 +1,7 @@
 package com.agento.bot;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,6 +47,24 @@ public class TelegramPollingService {
         this.processRunner = processRunner;
         this.properties = properties;
         this.settingsService = settingsService;
+    }
+
+    @PostConstruct
+    public void configureTelegramCommands() {
+        try {
+            telegramClient.setCommands(List.of(
+                    new TelegramClient.BotCommand("start", "Show menu"),
+                    new TelegramClient.BotCommand("help", "Show help"),
+                    new TelegramClient.BotCommand("ping", "Check bot health"),
+                    new TelegramClient.BotCommand("status", "Show Codex settings"),
+                    new TelegramClient.BotCommand("cancel", "Stop active Codex task"),
+                    new TelegramClient.BotCommand("model", "Choose Codex model"),
+                    new TelegramClient.BotCommand("reasoning", "Choose reasoning effort"),
+                    new TelegramClient.BotCommand("mode", "Choose access mode")
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to update Telegram bot commands: {}", e.getMessage());
+        }
     }
 
     @Scheduled(fixedDelay = 1000)
@@ -97,11 +116,6 @@ public class TelegramPollingService {
             return;
         }
 
-        if (text.equals("/id")) {
-            telegramClient.sendMessage(chatId, "Your chat_id: " + chatId);
-            return;
-        }
-
         if (chatId != properties.telegram().allowedChatId()) {
             telegramClient.sendMessage(chatId, "Access denied.");
             return;
@@ -128,11 +142,6 @@ public class TelegramPollingService {
         }
 
         if (handleSettingsCommand(chatId, text)) {
-            return;
-        }
-
-        if (text.startsWith("/")) {
-            telegramClient.sendMainMenu(chatId, "Unknown command. Use the menu or send a plain text task for Codex.");
             return;
         }
 
@@ -227,8 +236,7 @@ public class TelegramPollingService {
 
                 You can send plain text, and it will be sent to Codex as a task.
 
-                Commands:
-                /id - show chat_id
+                Bot controls:
                 /ping - check that the bot is alive
                 /status - current settings and busy state
                 /cancel - stop the active task
@@ -236,8 +244,7 @@ public class TelegramPollingService {
                 /reasoning - choose reasoning effort
                 /mode - choose Codex access mode
 
-                There are no /docker, /logs, or approval commands.
-                Send "run docker ps" as plain text when you want Codex to execute it.
+                Any other message is sent directly to Codex.
                 """;
     }
 

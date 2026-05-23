@@ -17,7 +17,6 @@ Plain text messages are treated as Codex tasks. Slash commands are reserved for 
 ## Telegram Commands
 
 ```text
-/id
 /ping
 /status
 /cancel
@@ -55,7 +54,7 @@ full-access
 ```
 
 Default: `full-access`, which runs Codex with `--dangerously-bypass-approvals-and-sandbox`.
-There are no `/docker`, `/logs`, or approval commands. Send the task as plain text when you want Codex to execute it.
+Send the task as plain text when you want Codex to execute it.
 
 ## GitHub Actions Secrets
 
