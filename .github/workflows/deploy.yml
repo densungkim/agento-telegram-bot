@@ -1,8 +1,6 @@
 name: Build and deploy Agento Bot
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -53,7 +51,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_COMMAND: ${{ secrets.CODEX_COMMAND }}
           CODEX_WORKDIR: ${{ secrets.CODEX_WORKDIR }}
           CODEX_TIMEOUT_SECONDS: ${{ secrets.CODEX_TIMEOUT_SECONDS }}
@@ -90,18 +87,9 @@ jobs:
             printf '%s=%q\n' "$key" "$value" >> deploy/app.env
           }
 
-          write_env_if_set() {
-            local key="$1"
-            local value="${!key:-}"
-            if [ -n "$value" ]; then
-              printf '%s=%q\n' "$key" "$value" >> deploy/app.env
-            fi
-          }
-
           : > deploy/app.env
           write_env TELEGRAM_BOT_TOKEN
           write_env TELEGRAM_ALLOWED_CHAT_ID
-          write_env_if_set OPENAI_API_KEY
           write_env CODEX_COMMAND
           write_env CODEX_WORKDIR
           write_env CODEX_TIMEOUT_SECONDS
@@ -111,7 +99,9 @@ jobs:
           write_env CODEX_ACCESS_MODE
           write_env CODEX_APPROVAL_POLICY
           write_env CODEX_SETTINGS_FILE
-          write_env_if_set CODEX_SYSTEM_PROMPT
+          if [ -n "${CODEX_SYSTEM_PROMPT:-}" ]; then
+            write_env CODEX_SYSTEM_PROMPT
+          fi
 
           printf '%s=%q\n' CODEX_SKIP_GIT_REPO_CHECK true >> deploy/app.env
 

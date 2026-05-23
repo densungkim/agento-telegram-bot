@@ -1,19 +1,19 @@
 # Agento Telegram Bot
 
-Telegram-бот для запуска OpenAI Codex CLI на VPS от имени пользователя `agento`.
-Проект собирается в обычный Spring Boot jar и разворачивается без Docker.
+Telegram bot for running OpenAI Codex CLI on a VPS as the `agento` user.
+The project is built as a regular Spring Boot jar and deployed without Docker.
 
-## Что делает бот
+## Features
 
-- принимает задачи из Telegram и запускает `codex exec` в `/home/agento`;
-- передает Codex системное вступление о том, что он работает на реальном VPS;
-- позволяет менять модель, reasoning effort и режим доступа без redeploy;
-- сохраняет runtime-настройки в `agento-settings.properties` рядом с jar;
-- ограничивает доступ одним `TELEGRAM_ALLOWED_CHAT_ID`.
+- accepts Telegram tasks and runs `codex exec` in `/home/agento`;
+- prepends a VPS safety prompt before each Codex task;
+- lets you change the model, reasoning effort, and access mode without redeploying;
+- stores runtime settings in `agento-settings.properties` next to the jar;
+- restricts access to one `TELEGRAM_ALLOWED_CHAT_ID`.
 
-Обычное текстовое сообщение считается задачей для Codex. Команда `/codex текст` оставлена как явный вариант.
+Plain text messages are treated as Codex tasks. `/codex text` is also supported as an explicit command.
 
-## Команды Telegram
+## Telegram Commands
 
 ```text
 /id
@@ -26,10 +26,10 @@ Telegram-бот для запуска OpenAI Codex CLI на VPS от имени 
 /approval
 /docker
 /logs
-/codex проверь docker ps и дай короткий отчет
+/codex check docker ps and give a short report
 ```
 
-Модели по умолчанию:
+Default models:
 
 ```text
 gpt-5.5
@@ -48,7 +48,7 @@ high
 xhigh
 ```
 
-Режимы `/mode`:
+`/mode` values:
 
 ```text
 read-only
@@ -57,12 +57,12 @@ full-access
 bypass
 ```
 
-Default: `full-access`, что запускает Codex с `--sandbox danger-full-access --ask-for-approval never`.
-`bypass` использует `--dangerously-bypass-approvals-and-sandbox`.
+Default: `full-access`, which runs Codex with `--sandbox danger-full-access --ask-for-approval never`.
+`bypass` uses `--dangerously-bypass-approvals-and-sandbox`.
 
-## GitHub Actions secrets
+## GitHub Actions Secrets
 
-Обязательные:
+Required:
 
 ```text
 VPS_HOST
@@ -71,16 +71,15 @@ TELEGRAM_BOT_TOKEN
 TELEGRAM_ALLOWED_CHAT_ID
 ```
 
-Обычно также нужны:
+Usually also useful:
 
 ```text
-OPENAI_API_KEY
 VPS_USER=agento
 VPS_PORT=22
 VPS_APP_DIR=/home/agento
 ```
 
-Опциональные Codex-настройки:
+Optional Codex settings:
 
 ```text
 CODEX_COMMAND=codex
@@ -95,20 +94,21 @@ CODEX_SETTINGS_FILE=./agento-settings.properties
 CODEX_SYSTEM_PROMPT=...
 ```
 
-## Локальный запуск
+## Local Run
 
 ```bash
 cp .env.example .env
-# заполнить TELEGRAM_BOT_TOKEN и TELEGRAM_ALLOWED_CHAT_ID
+# Fill TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID.
 ./scripts/run-local.sh
 ```
 
 ## VPS
 
-На VPS должен быть установлен Java 25 и Codex CLI. Для установки Codex через npm:
+Java 25 and Codex CLI must be installed on the VPS. Codex must already be authenticated for the `agento` user.
+To install Codex through npm:
 
 ```bash
 ./scripts/install-codex-on-vps.sh
 ```
 
-Если Codex установлен через `nvm` и не попадает в PATH non-interactive SSH-сессии, workflow попробует найти бинарник внутри `$HOME`.
+If Codex was installed through `nvm` and is not available in the PATH of a non-interactive SSH session, the workflow will try to find the binary inside `$HOME`.

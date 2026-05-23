@@ -28,7 +28,7 @@ public class ShellRunner {
     private String runSafeShell(String shellCommand) {
         File workdir = new File(properties.codex().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
-            return "CODEX_WORKDIR не существует или не является папкой: " + workdir.getAbsolutePath();
+            return "CODEX_WORKDIR does not exist or is not a directory: " + workdir.getAbsolutePath();
         }
 
         CommandResult result = processRunner.run(
@@ -38,7 +38,7 @@ public class ShellRunner {
         );
 
         if (result.timedOut()) {
-            return "Команда остановлена по timeout.\n\n" + result.output();
+            return "Command stopped by timeout.\n\n" + result.output();
         }
 
         return "Exit code: " + result.exitCode() + "\n\n" + result.output();

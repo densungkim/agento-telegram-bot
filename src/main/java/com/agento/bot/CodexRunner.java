@@ -23,7 +23,7 @@ public class CodexRunner {
     public String runCodex(String userPrompt) {
         File workdir = new File(properties.codex().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
-            return "CODEX_WORKDIR не существует или не является папкой: " + workdir.getAbsolutePath();
+            return "CODEX_WORKDIR does not exist or is not a directory: " + workdir.getAbsolutePath();
         }
 
         List<String> command = buildCodexCommand(userPrompt);
@@ -34,10 +34,10 @@ public class CodexRunner {
         );
 
         if (result.timedOut()) {
-            return limitOutput("Codex остановлен по timeout: " + properties.codex().timeoutSeconds() + " секунд.\n\nВывод до остановки:\n" + result.output());
+            return limitOutput("Codex stopped by timeout after " + properties.codex().timeoutSeconds() + " seconds.\n\nOutput before stop:\n" + result.output());
         }
 
-        return limitOutput("Codex завершил работу. Exit code: " + result.exitCode() + "\n\n" + cleanOutput(result.output()));
+        return limitOutput("Codex finished. Exit code: " + result.exitCode() + "\n\n" + cleanOutput(result.output()));
     }
 
     private List<String> buildCodexCommand(String userPrompt) {
@@ -81,19 +81,19 @@ public class CodexRunner {
         return """
                 %s
 
-                Рабочая папка Codex уже выбрана: %s.
-                Сервис Telegram-бота запущен как jar на VPS из домашней папки пользователя agento.
-                Выполняй задачу в текущей папке и в пределах прав пользователя agento.
-                В финальном ответе дай короткий отчет: что проверил, что изменил, какие команды запускал, что делать дальше.
+                Codex working directory is already selected: %s.
+                The Telegram bot service is running as a jar on a VPS from the home directory of the agento user.
+                Work in the current directory and stay within the permissions of the agento user.
+                In your final answer, provide a short report: what you checked, what you changed, which commands you ran, and what should be done next.
 
-                Задача пользователя из Telegram:
+                User task from Telegram:
                 %s
                 """.formatted(properties.codex().systemPrompt(), properties.codex().workdir(), userPrompt);
     }
 
     private String cleanOutput(String output) {
         if (output == null || output.isBlank()) {
-            return "Codex не вернул текстовый ответ.";
+            return "Codex did not return any text output.";
         }
         return output.strip();
     }
@@ -105,7 +105,7 @@ public class CodexRunner {
         }
         int omitted = output.length() - maxChars;
         return output.substring(0, maxChars).stripTrailing()
-                + "\n\n... вывод обрезан, пропущено символов: " + omitted;
+                + "\n\n... output truncated, omitted characters: " + omitted;
     }
 
     private boolean isNotBlank(String value) {

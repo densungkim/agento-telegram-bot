@@ -101,12 +101,12 @@ public class TelegramPollingService {
         }
 
         if (text.equals("/id")) {
-            telegramClient.sendMessage(chatId, "Твой chat_id: " + chatId);
+            telegramClient.sendMessage(chatId, "Your chat_id: " + chatId);
             return;
         }
 
         if (chatId != properties.telegram().allowedChatId()) {
-            telegramClient.sendMessage(chatId, "Нет доступа.");
+            telegramClient.sendMessage(chatId, "Access denied.");
             return;
         }
 
@@ -135,19 +135,19 @@ public class TelegramPollingService {
         }
 
         if (text.equals("/docker")) {
-            runAndReply(chatId, "Проверяю Docker...", shellRunner::runDockerPs);
+            runAndReply(chatId, "Checking Docker...", shellRunner::runDockerPs);
             return;
         }
 
         if (text.equals("/logs")) {
-            runAndReply(chatId, "Смотрю docker compose logs...", shellRunner::runProjectLogs);
+            runAndReply(chatId, "Reading docker compose logs...", shellRunner::runProjectLogs);
             return;
         }
 
         if (text.startsWith("/codex ")) {
             String prompt = text.substring("/codex ".length()).trim();
             if (prompt.isBlank()) {
-                telegramClient.sendMessage(chatId, "Напиши задачу после /codex");
+                telegramClient.sendMessage(chatId, "Write a task after /codex");
                 return;
             }
             runCodex(chatId, prompt);
@@ -155,7 +155,7 @@ public class TelegramPollingService {
         }
 
         if (text.startsWith("/")) {
-            telegramClient.sendMessage(chatId, "Не понял команду. Напиши /help");
+            telegramClient.sendMessage(chatId, "Unknown command. Send /help");
             return;
         }
 
@@ -164,11 +164,11 @@ public class TelegramPollingService {
 
     private boolean handleSettingsCommand(long chatId, String text) {
         if (text.equals("/model")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Модель Codex", "/model", settingsService.allowedModels()), keyboard("/model", settingsService.allowedModels()));
+            telegramClient.sendKeyboard(chatId, optionsText("Codex model", "/model", settingsService.allowedModels()), keyboard("/model", settingsService.allowedModels()));
             return true;
         }
         if (text.startsWith("/model ")) {
-            return updateSetting(chatId, () -> settingsService.setModel(text.substring("/model ".length())), "Модель обновлена");
+            return updateSetting(chatId, () -> settingsService.setModel(text.substring("/model ".length())), "Model updated");
         }
 
         if (text.equals("/reasoning")) {
@@ -176,7 +176,7 @@ public class TelegramPollingService {
             return true;
         }
         if (text.startsWith("/reasoning ")) {
-            return updateSetting(chatId, () -> settingsService.setReasoningEffort(text.substring("/reasoning ".length())), "Reasoning обновлен");
+            return updateSetting(chatId, () -> settingsService.setReasoningEffort(text.substring("/reasoning ".length())), "Reasoning updated");
         }
 
         if (text.equals("/mode")) {
@@ -184,7 +184,7 @@ public class TelegramPollingService {
             return true;
         }
         if (text.startsWith("/mode ")) {
-            return updateSetting(chatId, () -> settingsService.setAccessMode(text.substring("/mode ".length())), "Codex mode обновлен");
+            return updateSetting(chatId, () -> settingsService.setAccessMode(text.substring("/mode ".length())), "Codex mode updated");
         }
 
         if (text.equals("/approval")) {
@@ -192,7 +192,7 @@ public class TelegramPollingService {
             return true;
         }
         if (text.startsWith("/approval ")) {
-            return updateSetting(chatId, () -> settingsService.setApprovalPolicy(text.substring("/approval ".length())), "Approval policy обновлена");
+            return updateSetting(chatId, () -> settingsService.setApprovalPolicy(text.substring("/approval ".length())), "Approval policy updated");
         }
 
         return false;
@@ -205,19 +205,19 @@ public class TelegramPollingService {
         } catch (IllegalArgumentException e) {
             telegramClient.sendMessage(chatId, e.getMessage());
         } catch (Exception e) {
-            telegramClient.sendMessage(chatId, "Не удалось сохранить настройку: " + e.getMessage());
+            telegramClient.sendMessage(chatId, "Failed to save setting: " + e.getMessage());
         }
         return true;
     }
 
     private void runCodex(long chatId, String prompt) {
-        runAndReply(chatId, "Запускаю Codex с текущими настройками:\n" + settingsSummary(settingsService.current()), () -> codexRunner.runCodex(prompt));
+        runAndReply(chatId, "Starting Codex with current settings:\n" + settingsSummary(settingsService.current()), () -> codexRunner.runCodex(prompt));
     }
 
     private void runAndReply(long chatId, String startedMessage, Task task) {
         ActiveTask active = new ActiveTask();
         if (!activeTask.compareAndSet(null, active)) {
-            telegramClient.sendMessage(chatId, "Я уже выполняю задачу. Напиши /status или /cancel.");
+            telegramClient.sendMessage(chatId, "A task is already running. Send /status or /cancel.");
             return;
         }
 
@@ -227,7 +227,7 @@ public class TelegramPollingService {
                 String result = task.run();
                 telegramClient.sendMessage(chatId, result);
             } catch (Exception e) {
-                telegramClient.sendMessage(chatId, "Ошибка: " + e.getMessage());
+                telegramClient.sendMessage(chatId, "Error: " + e.getMessage());
             } finally {
                 activeTask.compareAndSet(active, null);
             }
@@ -238,7 +238,7 @@ public class TelegramPollingService {
     private void cancelTask(long chatId) {
         ActiveTask active = activeTask.get();
         if (active == null) {
-            telegramClient.sendMessage(chatId, "Активной задачи нет.");
+            telegramClient.sendMessage(chatId, "No active task.");
             return;
         }
 
@@ -249,27 +249,27 @@ public class TelegramPollingService {
         }
         activeTask.compareAndSet(active, null);
 
-        telegramClient.sendMessage(chatId, processCancelled ? "Остановил активный процесс." : "Задача отменена.");
+        telegramClient.sendMessage(chatId, processCancelled ? "Stopped the active process." : "Task cancelled.");
     }
 
     private String helpText() {
         return """
-                Agento Bot готов.
+                Agento Bot is ready.
 
-                Можно просто отправить текст, и он уйдет в Codex как задача.
+                You can send plain text, and it will be sent to Codex as a task.
 
-                Команды:
-                /id - узнать chat_id
-                /ping - проверить, что бот живой
-                /status - текущие настройки и занятость
-                /cancel - остановить активную задачу
-                /model - выбрать модель
-                /reasoning - выбрать reasoning effort
-                /mode - выбрать режим доступа Codex
-                /approval - выбрать approval policy
+                Commands:
+                /id - show chat_id
+                /ping - check that the bot is alive
+                /status - current settings and busy state
+                /cancel - stop the active task
+                /model - choose model
+                /reasoning - choose reasoning effort
+                /mode - choose Codex access mode
+                /approval - choose approval policy
                 /docker - docker ps
                 /logs - docker compose logs --tail=120
-                /codex текст задачи - явно запустить Codex
+                /codex task text - explicitly start Codex
                 """;
     }
 
