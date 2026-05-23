@@ -137,6 +137,52 @@ jobs:
           cd "$APP_DIR"
           chmod +x agento-bot-status.sh agento-bot-stop.sh
 
+          [ -f app.jar ] || { echo "app.jar not found in $APP_DIR"; exit 1; }
+          [ -f app.env ] || { echo "app.env not found in $APP_DIR"; exit 1; }
+
+          load_user_env() {
+            set +e +u
+            for file in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc"; do
+              if [ -f "$file" ]; then
+                # shellcheck disable=SC1090
+                . "$file"
+              fi
+            done
+            if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+              # shellcheck disable=SC1091
+              . "$HOME/.sdkman/bin/sdkman-init.sh"
+            fi
+            set -euo pipefail
+          }
+
+          set -a
+          # shellcheck disable=SC1091
+          source app.env
+          set +a
+
+          load_user_env
+
+          JAVA_COMMAND="${JAVA_COMMAND:-java}"
+          if ! command -v "$JAVA_COMMAND" >/dev/null 2>&1; then
+            FOUND_JAVA=$(find "$HOME" /usr/lib/jvm -type f -path '*/bin/java' -perm -111 2>/dev/null | head -n 1 || true)
+            if [ -n "$FOUND_JAVA" ]; then
+              JAVA_COMMAND="$FOUND_JAVA"
+            fi
+          fi
+
+          if [ "${CODEX_COMMAND:-codex}" = "codex" ] && ! command -v codex >/dev/null 2>&1; then
+            FOUND_CODEX=$(find "$HOME" -type f -path '*/bin/codex' 2>/dev/null | head -n 1 || true)
+            if [ -n "$FOUND_CODEX" ]; then
+              export CODEX_COMMAND="$FOUND_CODEX"
+            fi
+          fi
+          if [ "${CODEX_COMMAND:-codex}" != "codex" ] && [ -f "$CODEX_COMMAND" ]; then
+            export PATH="$(dirname "$CODEX_COMMAND"):$PATH"
+          fi
+
+          "$JAVA_COMMAND" -version >/dev/null 2>&1 || { echo "Java is not available in this non-interactive SSH session"; echo "PATH=$PATH"; exit 1; }
+          "$CODEX_COMMAND" --version >/dev/null 2>&1 || { echo "Codex CLI is not available. Install or authenticate it on VPS first."; echo "PATH=$PATH"; exit 1; }
+
           if [ -f app.pid ]; then
             OLD_PID=$(cat app.pid || true)
             if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
@@ -149,22 +195,7 @@ jobs:
             rm -f app.pid
           fi
 
-          set -a
-          # shellcheck disable=SC1091
-          source app.env
-          set +a
-
-          if [ "${CODEX_COMMAND:-codex}" = "codex" ] && ! command -v codex >/dev/null 2>&1; then
-            FOUND_CODEX=$(find "$HOME" -type f -path '*/bin/codex' 2>/dev/null | head -n 1 || true)
-            if [ -n "$FOUND_CODEX" ]; then
-              export CODEX_COMMAND="$FOUND_CODEX"
-            fi
-          fi
-
-          command -v java >/dev/null 2>&1 || { echo "Java is not installed on VPS"; exit 1; }
-          "$CODEX_COMMAND" --version >/dev/null 2>&1 || { echo "Codex CLI is not available. Install it on VPS first."; exit 1; }
-
-          nohup java -jar app.jar > app.log 2>&1 &
+          nohup "$JAVA_COMMAND" -jar app.jar > app.log 2>&1 &
           echo $! > app.pid
           sleep 3
 
