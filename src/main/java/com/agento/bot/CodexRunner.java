@@ -32,11 +32,12 @@ public class CodexRunner {
         Path lastMessageFile = null;
         try {
             lastMessageFile = Files.createTempFile("agento-codex-last-message-", ".txt");
-            List<String> command = buildCodexCommand(userPrompt, lastMessageFile);
+            List<String> command = buildCodexCommand(lastMessageFile);
             CommandResult result = processRunner.run(
                     command,
                     workdir,
-                    Duration.ofSeconds(properties.codex().timeoutSeconds())
+                    Duration.ofSeconds(properties.codex().timeoutSeconds()),
+                    buildPrompt(userPrompt)
             );
 
             String lastMessage = readLastMessage(lastMessageFile);
@@ -61,7 +62,7 @@ public class CodexRunner {
         }
     }
 
-    private List<String> buildCodexCommand(String userPrompt, Path lastMessageFile) {
+    private List<String> buildCodexCommand(Path lastMessageFile) {
         CodexSettings settings = settingsService.current();
         List<String> command = new ArrayList<>();
         command.add(properties.codex().command());
@@ -94,7 +95,7 @@ public class CodexRunner {
             command.add(settings.sandboxMode());
         }
 
-        command.add(buildPrompt(userPrompt));
+        command.add("-");
         return command;
     }
 

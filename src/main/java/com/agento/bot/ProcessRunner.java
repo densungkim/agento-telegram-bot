@@ -11,14 +11,19 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 @Component
 public class ProcessRunner {
 
+    private static final int MAX_CAPTURED_OUTPUT_CHARS = 200_000;
+
     private final AtomicReference<Process> activeProcess = new AtomicReference<>();
 
     public CommandResult run(List<String> command, File workdir, Duration timeout) {
+        return run(command, workdir, timeout, null);
+    }
+
+    public CommandResult run(List<String> command, File workdir, Duration timeout, String input) {
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.directory(workdir);
         processBuilder.redirectErrorStream(true);
@@ -26,19 +31,19 @@ public class ProcessRunner {
         try {
             Process process = processBuilder.start();
             activeProcess.set(process);
-            closeProcessInput(process);
 
             CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(process));
+            String inputError = writeProcessInput(process, input);
             boolean finished = process.waitFor(timeout.toSeconds(), TimeUnit.SECONDS);
 
             if (!finished) {
                 process.destroyForcibly();
                 String output = readOutputWithTimeout(outputFuture);
-                return new CommandResult(-1, true, output);
+                return new CommandResult(-1, true, appendInputError(output, inputError));
             }
 
             String output = readOutputWithTimeout(outputFuture);
-            return new CommandResult(process.exitValue(), false, output);
+            return new CommandResult(process.exitValue(), false, appendInputError(output, inputError));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             cancelActiveProcess();
@@ -68,8 +73,25 @@ public class ProcessRunner {
         return true;
     }
 
-    private void closeProcessInput(Process process) throws IOException {
-        process.getOutputStream().close();
+    private String writeProcessInput(Process process, String input) {
+        try (var output = process.getOutputStream()) {
+            if (input != null && !input.isEmpty()) {
+                output.write(input.getBytes(StandardCharsets.UTF_8));
+            }
+            return null;
+        } catch (IOException e) {
+            return "Failed to write process input: " + e.getMessage();
+        }
+    }
+
+    private String appendInputError(String output, String inputError) {
+        if (inputError == null || inputError.isBlank()) {
+            return output;
+        }
+        if (output == null || output.isBlank()) {
+            return inputError;
+        }
+        return output + "\n" + inputError;
     }
 
     private String readOutputWithTimeout(CompletableFuture<String> outputFuture) throws Exception {
@@ -82,7 +104,29 @@ public class ProcessRunner {
 
     private String readOutput(Process process) {
         try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
-            return reader.lines().collect(Collectors.joining("\n"));
+            StringBuilder output = new StringBuilder();
+            int omittedChars = 0;
+            String line;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (!firstLine) {
+                    output.append('\n');
+                }
+                output.append(line);
+                firstLine = false;
+
+                if (output.length() > MAX_CAPTURED_OUTPUT_CHARS) {
+                    int deleteChars = output.length() - MAX_CAPTURED_OUTPUT_CHARS;
+                    output.delete(0, deleteChars);
+                    omittedChars += deleteChars;
+                }
+            }
+
+            if (omittedChars > 0) {
+                return "[captured output truncated, omitted first characters: " + omittedChars + "]\n" + output;
+            }
+            return output.toString();
         } catch (IOException e) {
             return "Failed to read process output: " + e.getMessage();
         }

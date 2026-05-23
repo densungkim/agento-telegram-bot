@@ -42,6 +42,9 @@ public class TelegramPollingService {
             BotProperties properties,
             CodexSettingsService settingsService
     ) {
+        if (properties.telegram().allowedChatId() == 0) {
+            throw new IllegalStateException("TELEGRAM_ALLOWED_CHAT_ID is required and cannot be 0");
+        }
         this.telegramClient = telegramClient;
         this.codexRunner = codexRunner;
         this.processRunner = processRunner;
@@ -189,19 +192,19 @@ public class TelegramPollingService {
     }
 
     private void runCodex(long chatId, String prompt) {
-        runAndReply(chatId, "Starting Codex with current settings:\n" + settingsSummary(settingsService.current()), () -> codexRunner.runCodex(prompt));
+        runAndReply(chatId, prompt, () -> codexRunner.runCodex(prompt));
     }
 
-    private void runAndReply(long chatId, String startedMessage, Task task) {
-        ActiveTask active = new ActiveTask();
+    private void runAndReply(long chatId, String prompt, Task task) {
+        ActiveTask active = new ActiveTask(Instant.now(), preview(prompt));
         if (!activeTask.compareAndSet(null, active)) {
             telegramClient.sendMainMenu(chatId, "A task is already running. Use /status or /cancel.");
             return;
         }
 
+        telegramClient.sendTyping(chatId);
         Future<?> future = executorService.submit(() -> {
             try {
-                telegramClient.sendMessage(chatId, startedMessage);
                 String result = task.run();
                 telegramClient.sendMessage(chatId, result);
             } catch (Exception e) {
@@ -256,6 +259,7 @@ public class TelegramPollingService {
                 codex command: %s
                 settings file: %s
                 busy: %s
+                active task: %s
 
                 %s
                 """.formatted(
@@ -264,6 +268,7 @@ public class TelegramPollingService {
                 properties.codex().command(),
                 properties.codex().settingsFile(),
                 activeTask.get() != null,
+                activeTaskDescription(),
                 settingsSummary(settingsService.current())
         );
     }
@@ -294,6 +299,23 @@ public class TelegramPollingService {
         return rows;
     }
 
+    private String activeTaskDescription() {
+        ActiveTask active = activeTask.get();
+        if (active == null) {
+            return "none";
+        }
+        long seconds = Math.max(0, Instant.now().getEpochSecond() - active.startedAt().getEpochSecond());
+        return active.promptPreview() + " (" + seconds + "s)";
+    }
+
+    private String preview(String text) {
+        String normalized = text.replaceAll("\\s+", " ").strip();
+        if (normalized.length() <= 80) {
+            return normalized;
+        }
+        return normalized.substring(0, 77) + "...";
+    }
+
     @FunctionalInterface
     private interface Task {
         String run();
@@ -305,7 +327,22 @@ public class TelegramPollingService {
     }
 
     private static final class ActiveTask {
+        private final Instant startedAt;
+        private final String promptPreview;
         private volatile Future<?> future;
+
+        private ActiveTask(Instant startedAt, String promptPreview) {
+            this.startedAt = startedAt;
+            this.promptPreview = promptPreview;
+        }
+
+        private Instant startedAt() {
+            return startedAt;
+        }
+
+        private String promptPreview() {
+            return promptPreview;
+        }
     }
 
     private static final class AgentThreadFactory implements ThreadFactory {

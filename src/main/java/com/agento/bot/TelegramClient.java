@@ -63,6 +63,21 @@ public class TelegramClient {
         sendMessage(chatId, text, null);
     }
 
+    public void sendTyping(long chatId) {
+        try {
+            restClient.post()
+                    .uri("/sendChatAction")
+                    .body(Map.of(
+                            "chat_id", chatId,
+                            "action", "typing"
+                    ))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception e) {
+            log.debug("Failed to send Telegram typing action: {}", e.getMessage());
+        }
+    }
+
     public void sendMainMenu(long chatId, String text) {
         sendKeyboard(chatId, text, List.of(
                 List.of("/status", "/cancel"),
