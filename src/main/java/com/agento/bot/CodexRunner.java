@@ -69,8 +69,6 @@ public class CodexRunner {
         } else {
             command.add("--sandbox");
             command.add(settings.sandboxMode());
-            command.add("--ask-for-approval");
-            command.add(settings.approvalPolicy());
         }
 
         command.add(buildPrompt(userPrompt));

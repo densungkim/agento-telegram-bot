@@ -19,11 +19,9 @@ agentobot:
     model: ${CODEX_MODEL:gpt-5.5}
     reasoning-effort: ${CODEX_REASONING_EFFORT:medium}
     access-mode: ${CODEX_ACCESS_MODE:full-access}
-    approval-policy: ${CODEX_APPROVAL_POLICY:never}
     skip-git-repo-check: ${CODEX_SKIP_GIT_REPO_CHECK:true}
     settings-file: ${CODEX_SETTINGS_FILE:./agento-settings.properties}
     allowed-models: ${CODEX_ALLOWED_MODELS:gpt-5.5,gpt-5.4,gpt-5.4-mini,gpt-5.3-codex,gpt-5.2}
     allowed-reasoning-efforts: ${CODEX_ALLOWED_REASONING_EFFORTS:low,medium,high,xhigh}
-    allowed-access-modes: ${CODEX_ALLOWED_ACCESS_MODES:read-only,workspace,full-access,bypass}
-    allowed-approval-policies: ${CODEX_ALLOWED_APPROVAL_POLICIES:untrusted,on-request,never}
-    system-prompt: '${CODEX_SYSTEM_PROMPT:You are working on a real Linux VPS. This is not a disposable sandbox: commands can change files owned by the agento user, Docker containers, Docker images, Docker volumes, user-level systemd services, network configuration, and installed packages. Be practical, but careful: inspect the current state first, do not reveal secrets or tokens, and do not delete databases, volumes, keys, home directories, or production data unless the user explicitly asks for it. If the task clearly asks you to install, configure, repair, or operate something, run the necessary commands within the permissions of the agento user.}'
+    allowed-access-modes: ${CODEX_ALLOWED_ACCESS_MODES:read-only,workspace,full-access}
+    system-prompt: '${CODEX_SYSTEM_PROMPT:You are working on a real Linux VPS. This is not a disposable sandbox: commands can change files owned by the agento user, Docker containers, Docker images, Docker volumes, user-level systemd services, network configuration, and installed packages. Be practical, but careful: inspect the current state first, do not reveal secrets or tokens, and do not delete databases, volumes, keys, home directories, or production data unless the user explicitly asks for it. If the task clearly asks you to install, configure, repair, operate something, or run a command, execute the necessary commands directly within the permissions of the agento user without asking for approval.}'

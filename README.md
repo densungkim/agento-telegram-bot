@@ -6,12 +6,13 @@ The project is built as a regular Spring Boot jar and deployed without Docker.
 ## Features
 
 - accepts Telegram tasks and runs `codex exec` in `/home/agento`;
+- deploys bot runtime files into `/home/agento/agento-bot`;
 - prepends a VPS safety prompt before each Codex task;
 - lets you change the model, reasoning effort, and access mode without redeploying;
 - stores runtime settings in `agento-settings.properties` next to the jar;
 - restricts access to one `TELEGRAM_ALLOWED_CHAT_ID`.
 
-Plain text messages are treated as Codex tasks. `/codex text` is also supported as an explicit command.
+Plain text messages are treated as Codex tasks. Slash commands are reserved for the bot UI.
 
 ## Telegram Commands
 
@@ -23,10 +24,7 @@ Plain text messages are treated as Codex tasks. `/codex text` is also supported 
 /model
 /reasoning
 /mode
-/approval
-/docker
-/logs
-/codex check docker ps and give a short report
+check docker ps and give a short report
 ```
 
 Default models:
@@ -54,11 +52,10 @@ xhigh
 read-only
 workspace
 full-access
-bypass
 ```
 
-Default: `full-access`, which runs Codex with `--sandbox danger-full-access --ask-for-approval never`.
-`bypass` uses `--dangerously-bypass-approvals-and-sandbox`.
+Default: `full-access`, which runs Codex with `--dangerously-bypass-approvals-and-sandbox`.
+There are no `/docker`, `/logs`, or approval commands. Send the task as plain text when you want Codex to execute it.
 
 ## GitHub Actions Secrets
 
@@ -76,7 +73,7 @@ Usually also useful:
 ```text
 VPS_USER=agento
 VPS_PORT=22
-VPS_APP_DIR=/home/agento
+VPS_APP_DIR=/home/agento/agento-bot
 ```
 
 Optional Codex settings:
@@ -89,7 +86,6 @@ CODEX_MAX_OUTPUT_CHARS=30000
 CODEX_MODEL=gpt-5.5
 CODEX_REASONING_EFFORT=medium
 CODEX_ACCESS_MODE=full-access
-CODEX_APPROVAL_POLICY=never
 CODEX_SETTINGS_FILE=./agento-settings.properties
 CODEX_SYSTEM_PROMPT=...
 ```

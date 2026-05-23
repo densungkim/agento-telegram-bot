@@ -58,7 +58,6 @@ jobs:
           CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
           CODEX_REASONING_EFFORT: ${{ secrets.CODEX_REASONING_EFFORT }}
           CODEX_ACCESS_MODE: ${{ secrets.CODEX_ACCESS_MODE }}
-          CODEX_APPROVAL_POLICY: ${{ secrets.CODEX_APPROVAL_POLICY }}
           CODEX_SETTINGS_FILE: ${{ secrets.CODEX_SETTINGS_FILE }}
           CODEX_SYSTEM_PROMPT: ${{ secrets.CODEX_SYSTEM_PROMPT }}
         run: |
@@ -78,7 +77,6 @@ jobs:
           : "${CODEX_MODEL:=gpt-5.5}"
           : "${CODEX_REASONING_EFFORT:=medium}"
           : "${CODEX_ACCESS_MODE:=full-access}"
-          : "${CODEX_APPROVAL_POLICY:=never}"
           : "${CODEX_SETTINGS_FILE:=./agento-settings.properties}"
 
           write_env() {
@@ -97,7 +95,6 @@ jobs:
           write_env CODEX_MODEL
           write_env CODEX_REASONING_EFFORT
           write_env CODEX_ACCESS_MODE
-          write_env CODEX_APPROVAL_POLICY
           write_env CODEX_SETTINGS_FILE
           if [ -n "${CODEX_SYSTEM_PROMPT:-}" ]; then
             write_env CODEX_SYSTEM_PROMPT
@@ -115,7 +112,7 @@ jobs:
           set -euo pipefail
           : "${VPS_USER:=agento}"
           : "${VPS_PORT:=22}"
-          : "${VPS_APP_DIR:=/home/agento}"
+          : "${VPS_APP_DIR:=/home/agento/agento-bot}"
 
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR'"
           scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/"
@@ -130,7 +127,7 @@ jobs:
           set -euo pipefail
           : "${VPS_USER:=agento}"
           : "${VPS_PORT:=22}"
-          : "${VPS_APP_DIR:=/home/agento}"
+          : "${VPS_APP_DIR:=/home/agento/agento-bot}"
 
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
           set -euo pipefail

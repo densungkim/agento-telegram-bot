@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/home/agento}"
+APP_DIR="${APP_DIR:-/home/agento/agento-bot}"
 PID_FILE="$APP_DIR/app.pid"
 LOG_FILE="$APP_DIR/app.log"
 

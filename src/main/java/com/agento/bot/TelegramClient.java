@@ -48,11 +48,23 @@ public class TelegramClient {
         sendMessage(chatId, text, null);
     }
 
+    public void sendMainMenu(long chatId, String text) {
+        sendKeyboard(chatId, text, List.of(
+                List.of("/status", "/cancel"),
+                List.of("/model", "/reasoning"),
+                List.of("/mode", "/help")
+        ), false);
+    }
+
     public void sendKeyboard(long chatId, String text, List<List<String>> keyboardRows) {
+        sendKeyboard(chatId, text, keyboardRows, true);
+    }
+
+    public void sendKeyboard(long chatId, String text, List<List<String>> keyboardRows, boolean oneTimeKeyboard) {
         sendMessage(chatId, text, Map.of(
                 "keyboard", keyboardRows,
                 "resize_keyboard", true,
-                "one_time_keyboard", true
+                "one_time_keyboard", oneTimeKeyboard
         ));
     }
 

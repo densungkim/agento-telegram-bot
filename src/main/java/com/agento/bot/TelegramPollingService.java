@@ -24,7 +24,6 @@ public class TelegramPollingService {
 
     private final TelegramClient telegramClient;
     private final CodexRunner codexRunner;
-    private final ShellRunner shellRunner;
     private final ProcessRunner processRunner;
     private final BotProperties properties;
     private final CodexSettingsService settingsService;
@@ -38,14 +37,12 @@ public class TelegramPollingService {
     public TelegramPollingService(
             TelegramClient telegramClient,
             CodexRunner codexRunner,
-            ShellRunner shellRunner,
             ProcessRunner processRunner,
             BotProperties properties,
             CodexSettingsService settingsService
     ) {
         this.telegramClient = telegramClient;
         this.codexRunner = codexRunner;
-        this.shellRunner = shellRunner;
         this.processRunner = processRunner;
         this.properties = properties;
         this.settingsService = settingsService;
@@ -111,7 +108,7 @@ public class TelegramPollingService {
         }
 
         if (text.equals("/start") || text.equals("/help")) {
-            telegramClient.sendMessage(chatId, helpText());
+            telegramClient.sendMainMenu(chatId, helpText());
             return;
         }
 
@@ -121,7 +118,7 @@ public class TelegramPollingService {
         }
 
         if (text.equals("/status") || text.equals("/settings")) {
-            telegramClient.sendMessage(chatId, statusText());
+            telegramClient.sendMainMenu(chatId, statusText());
             return;
         }
 
@@ -134,28 +131,8 @@ public class TelegramPollingService {
             return;
         }
 
-        if (text.equals("/docker")) {
-            runAndReply(chatId, "Checking Docker...", shellRunner::runDockerPs);
-            return;
-        }
-
-        if (text.equals("/logs")) {
-            runAndReply(chatId, "Reading docker compose logs...", shellRunner::runProjectLogs);
-            return;
-        }
-
-        if (text.startsWith("/codex ")) {
-            String prompt = text.substring("/codex ".length()).trim();
-            if (prompt.isBlank()) {
-                telegramClient.sendMessage(chatId, "Write a task after /codex");
-                return;
-            }
-            runCodex(chatId, prompt);
-            return;
-        }
-
         if (text.startsWith("/")) {
-            telegramClient.sendMessage(chatId, "Unknown command. Send /help");
+            telegramClient.sendMainMenu(chatId, "Unknown command. Use the menu or send a plain text task for Codex.");
             return;
         }
 
@@ -187,21 +164,13 @@ public class TelegramPollingService {
             return updateSetting(chatId, () -> settingsService.setAccessMode(text.substring("/mode ".length())), "Codex mode updated");
         }
 
-        if (text.equals("/approval")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Approval policy", "/approval", settingsService.allowedApprovalPolicies()), keyboard("/approval", settingsService.allowedApprovalPolicies()));
-            return true;
-        }
-        if (text.startsWith("/approval ")) {
-            return updateSetting(chatId, () -> settingsService.setApprovalPolicy(text.substring("/approval ".length())), "Approval policy updated");
-        }
-
         return false;
     }
 
     private boolean updateSetting(long chatId, SettingsUpdate update, String successPrefix) {
         try {
             CodexSettings settings = update.apply();
-            telegramClient.sendMessage(chatId, successPrefix + ".\n\n" + settingsSummary(settings));
+            telegramClient.sendMainMenu(chatId, successPrefix + ".\n\n" + settingsSummary(settings));
         } catch (IllegalArgumentException e) {
             telegramClient.sendMessage(chatId, e.getMessage());
         } catch (Exception e) {
@@ -217,7 +186,7 @@ public class TelegramPollingService {
     private void runAndReply(long chatId, String startedMessage, Task task) {
         ActiveTask active = new ActiveTask();
         if (!activeTask.compareAndSet(null, active)) {
-            telegramClient.sendMessage(chatId, "A task is already running. Send /status or /cancel.");
+            telegramClient.sendMainMenu(chatId, "A task is already running. Use /status or /cancel.");
             return;
         }
 
@@ -238,7 +207,7 @@ public class TelegramPollingService {
     private void cancelTask(long chatId) {
         ActiveTask active = activeTask.get();
         if (active == null) {
-            telegramClient.sendMessage(chatId, "No active task.");
+            telegramClient.sendMainMenu(chatId, "No active task.");
             return;
         }
 
@@ -249,7 +218,7 @@ public class TelegramPollingService {
         }
         activeTask.compareAndSet(active, null);
 
-        telegramClient.sendMessage(chatId, processCancelled ? "Stopped the active process." : "Task cancelled.");
+        telegramClient.sendMainMenu(chatId, processCancelled ? "Stopped the active process." : "Task cancelled.");
     }
 
     private String helpText() {
@@ -266,10 +235,9 @@ public class TelegramPollingService {
                 /model - choose model
                 /reasoning - choose reasoning effort
                 /mode - choose Codex access mode
-                /approval - choose approval policy
-                /docker - docker ps
-                /logs - docker compose logs --tail=120
-                /codex task text - explicitly start Codex
+
+                There are no /docker, /logs, or approval commands.
+                Send "run docker ps" as plain text when you want Codex to execute it.
                 """;
     }
 
@@ -299,13 +267,11 @@ public class TelegramPollingService {
                 reasoning: %s
                 mode: %s
                 sandbox: %s
-                approval: %s
                 """.formatted(
                 settings.model(),
                 settings.reasoningEffort(),
                 settings.accessMode(),
-                settings.usesDangerousBypass() ? "bypassed" : settings.sandboxMode(),
-                settings.usesDangerousBypass() ? "bypassed" : settings.approvalPolicy()
+                settings.usesDangerousBypass() ? "bypassed" : settings.sandboxMode()
         ).strip();
     }
 

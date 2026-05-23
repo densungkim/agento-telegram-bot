@@ -18,13 +18,11 @@ public class CodexSettingsService {
     private static final String MODEL = "model";
     private static final String REASONING_EFFORT = "reasoningEffort";
     private static final String ACCESS_MODE = "accessMode";
-    private static final String APPROVAL_POLICY = "approvalPolicy";
 
     private final Path settingsFile;
     private final List<String> allowedModels;
     private final List<String> allowedReasoningEfforts;
     private final List<String> allowedAccessModes;
-    private final List<String> allowedApprovalPolicies;
 
     private CodexSettings current;
 
@@ -34,7 +32,6 @@ public class CodexSettingsService {
         this.allowedModels = splitCsv(codex.allowedModels());
         this.allowedReasoningEfforts = splitCsv(codex.allowedReasoningEfforts());
         this.allowedAccessModes = splitCsv(codex.allowedAccessModes());
-        this.allowedApprovalPolicies = splitCsv(codex.allowedApprovalPolicies());
         this.current = loadOrDefault(codex);
     }
 
@@ -45,7 +42,7 @@ public class CodexSettingsService {
     public synchronized CodexSettings setModel(String model) {
         String normalized = normalize(model);
         requireAllowed(normalized, allowedModels, "model");
-        current = new CodexSettings(normalized, current.reasoningEffort(), current.accessMode(), current.approvalPolicy());
+        current = new CodexSettings(normalized, current.reasoningEffort(), current.accessMode());
         save();
         return current;
     }
@@ -53,7 +50,7 @@ public class CodexSettingsService {
     public synchronized CodexSettings setReasoningEffort(String reasoningEffort) {
         String normalized = normalize(reasoningEffort);
         requireAllowed(normalized, allowedReasoningEfforts, "reasoning");
-        current = new CodexSettings(current.model(), normalized, current.accessMode(), current.approvalPolicy());
+        current = new CodexSettings(current.model(), normalized, current.accessMode());
         save();
         return current;
     }
@@ -61,15 +58,7 @@ public class CodexSettingsService {
     public synchronized CodexSettings setAccessMode(String accessMode) {
         String normalized = normalize(accessMode);
         requireAllowed(normalized, allowedAccessModes, "access mode");
-        current = new CodexSettings(current.model(), current.reasoningEffort(), normalized, current.approvalPolicy());
-        save();
-        return current;
-    }
-
-    public synchronized CodexSettings setApprovalPolicy(String approvalPolicy) {
-        String normalized = normalize(approvalPolicy);
-        requireAllowed(normalized, allowedApprovalPolicies, "approval policy");
-        current = new CodexSettings(current.model(), current.reasoningEffort(), current.accessMode(), normalized);
+        current = new CodexSettings(current.model(), current.reasoningEffort(), normalized);
         save();
         return current;
     }
@@ -86,16 +75,11 @@ public class CodexSettingsService {
         return allowedAccessModes;
     }
 
-    public List<String> allowedApprovalPolicies() {
-        return allowedApprovalPolicies;
-    }
-
     private CodexSettings loadOrDefault(BotProperties.Codex codex) {
         CodexSettings defaults = new CodexSettings(
                 firstAllowedOrDefault(codex.model(), allowedModels, "gpt-5.5"),
                 firstAllowedOrDefault(codex.reasoningEffort(), allowedReasoningEfforts, "medium"),
-                firstAllowedOrDefault(codex.accessMode(), allowedAccessModes, "full-access"),
-                firstAllowedOrDefault(codex.approvalPolicy(), allowedApprovalPolicies, "never")
+                firstAllowedOrDefault(codex.accessMode(), allowedAccessModes, "full-access")
         );
 
         if (!Files.isRegularFile(settingsFile)) {
@@ -112,8 +96,7 @@ public class CodexSettingsService {
         return new CodexSettings(
                 firstAllowedOrDefault(loaded.getProperty(MODEL), allowedModels, defaults.model()),
                 firstAllowedOrDefault(loaded.getProperty(REASONING_EFFORT), allowedReasoningEfforts, defaults.reasoningEffort()),
-                firstAllowedOrDefault(loaded.getProperty(ACCESS_MODE), allowedAccessModes, defaults.accessMode()),
-                firstAllowedOrDefault(loaded.getProperty(APPROVAL_POLICY), allowedApprovalPolicies, defaults.approvalPolicy())
+                firstAllowedOrDefault(loaded.getProperty(ACCESS_MODE), allowedAccessModes, defaults.accessMode())
         );
     }
 
@@ -122,7 +105,6 @@ public class CodexSettingsService {
         properties.setProperty(MODEL, current.model());
         properties.setProperty(REASONING_EFFORT, current.reasoningEffort());
         properties.setProperty(ACCESS_MODE, current.accessMode());
-        properties.setProperty(APPROVAL_POLICY, current.approvalPolicy());
 
         try {
             Path parent = settingsFile.toAbsolutePath().getParent();

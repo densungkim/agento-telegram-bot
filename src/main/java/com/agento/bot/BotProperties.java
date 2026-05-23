@@ -23,14 +23,12 @@ public record BotProperties(
             String model,
             String reasoningEffort,
             String accessMode,
-            String approvalPolicy,
             boolean skipGitRepoCheck,
             String systemPrompt,
             String settingsFile,
             String allowedModels,
             String allowedReasoningEfforts,
-            String allowedAccessModes,
-            String allowedApprovalPolicies
+            String allowedAccessModes
     ) {
     }
 }

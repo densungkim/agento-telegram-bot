@@ -3,8 +3,7 @@ package com.agento.bot;
 public record CodexSettings(
         String model,
         String reasoningEffort,
-        String accessMode,
-        String approvalPolicy
+        String accessMode
 ) {
     public String sandboxMode() {
         return switch (accessMode) {
@@ -16,6 +15,6 @@ public record CodexSettings(
     }
 
     public boolean usesDangerousBypass() {
-        return "bypass".equals(accessMode);
+        return "full-access".equals(accessMode) || "bypass".equals(accessMode);
     }
 }
