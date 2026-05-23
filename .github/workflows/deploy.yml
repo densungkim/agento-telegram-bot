@@ -114,8 +114,8 @@ jobs:
           : "${VPS_PORT:=22}"
           : "${VPS_APP_DIR:=/home/agento/agento-bot}"
 
-          ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR'"
-          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/"
+          ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR/.incoming' && rm -f '$VPS_APP_DIR/.incoming/'*"
+          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/.incoming/"
 
       - name: Restart bot on VPS
         env:
@@ -132,10 +132,12 @@ jobs:
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
           set -euo pipefail
           cd "$APP_DIR"
-          chmod +x agento-bot-status.sh agento-bot-stop.sh
+          INCOMING_DIR="$APP_DIR/.incoming"
 
-          [ -f app.jar ] || { echo "app.jar not found in $APP_DIR"; exit 1; }
-          [ -f app.env ] || { echo "app.env not found in $APP_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/app.jar" ] || { echo "incoming app.jar not found in $INCOMING_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/app.env" ] || { echo "incoming app.env not found in $INCOMING_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/agento-bot-status.sh" ] || { echo "incoming agento-bot-status.sh not found in $INCOMING_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/agento-bot-stop.sh" ] || { echo "incoming agento-bot-stop.sh not found in $INCOMING_DIR"; exit 1; }
 
           load_user_env() {
             set +e +u
@@ -154,7 +156,7 @@ jobs:
 
           set -a
           # shellcheck disable=SC1091
-          source app.env
+          source "$INCOMING_DIR/app.env"
           set +a
 
           load_user_env
@@ -191,6 +193,13 @@ jobs:
             fi
             rm -f app.pid
           fi
+
+          rm -f app.jar app.env agento-bot-status.sh agento-bot-stop.sh app.log app.pid
+          mv "$INCOMING_DIR/app.jar" app.jar
+          mv "$INCOMING_DIR/app.env" app.env
+          mv "$INCOMING_DIR/agento-bot-status.sh" agento-bot-status.sh
+          mv "$INCOMING_DIR/agento-bot-stop.sh" agento-bot-stop.sh
+          chmod +x agento-bot-status.sh agento-bot-stop.sh
 
           nohup "$JAVA_COMMAND" -jar app.jar > app.log 2>&1 &
           echo $! > app.pid
