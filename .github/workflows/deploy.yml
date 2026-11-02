@@ -3,16 +3,23 @@ name: Build and deploy Agento Bot
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: agento-bot-vps-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Java 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: temurin
           java-version: '25'
@@ -28,7 +35,7 @@ jobs:
       - name: Build jar
         run: |
           mvn -version
-          mvn -B clean package -DskipTests
+          mvn -B clean package -Dmaven.test.skip=true
 
       - name: Prepare SSH key
         env:
@@ -151,6 +158,7 @@ jobs:
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
           set -euo pipefail
           cd "$APP_DIR"
+          APP_DIR=$(pwd -P)
           INCOMING_DIR="$APP_DIR/.incoming"
 
           [ -f "$INCOMING_DIR/app.jar" ] || { echo "incoming app.jar not found in $INCOMING_DIR"; exit 1; }
@@ -174,12 +182,13 @@ jobs:
             set -euo pipefail
           }
 
+          load_user_env
+          cd "$APP_DIR"
+
           set -a
           # shellcheck disable=SC1091
           source "$INCOMING_DIR/app.env"
           set +a
-
-          load_user_env
 
           JAVA_COMMAND="${JAVA_COMMAND:-java}"
           if ! command -v "$JAVA_COMMAND" >/dev/null 2>&1; then
@@ -190,7 +199,7 @@ jobs:
           fi
 
           if [ "${CODEX_COMMAND:-codex}" = "codex" ] && ! command -v codex >/dev/null 2>&1; then
-            FOUND_CODEX=$(find "$HOME" -type f -path '*/bin/codex' 2>/dev/null | head -n 1 || true)
+            FOUND_CODEX=$(find "$HOME" \( -type f -o -type l \) -path '*/bin/codex' -executable 2>/dev/null | sort -V | tail -n 1 || true)
             if [ -n "$FOUND_CODEX" ]; then
               export CODEX_COMMAND="$FOUND_CODEX"
             fi
@@ -228,37 +237,23 @@ jobs:
             exit 1
           fi
 
-          LEGACY_APP_DIR="$HOME"
-          if [ "$LEGACY_APP_DIR" != "$APP_DIR" ] && [ -f "$LEGACY_APP_DIR/app.pid" ]; then
-            LEGACY_PID=$(cat "$LEGACY_APP_DIR/app.pid" || true)
-            if [ -n "${LEGACY_PID:-}" ] && ps -p "$LEGACY_PID" >/dev/null 2>&1; then
-              kill "$LEGACY_PID" || true
-              sleep 2
-            fi
-            if [ -n "${LEGACY_PID:-}" ] && ps -p "$LEGACY_PID" >/dev/null 2>&1; then
-              kill -9 "$LEGACY_PID" || true
-            fi
-          fi
-          if [ "$LEGACY_APP_DIR" != "$APP_DIR" ]; then
-            rm -f "$LEGACY_APP_DIR/app.jar" \
-                  "$LEGACY_APP_DIR/app.env" \
-                  "$LEGACY_APP_DIR/app.log" \
-                  "$LEGACY_APP_DIR/app.pid" \
-                  "$LEGACY_APP_DIR/agento-bot-status.sh" \
-                  "$LEGACY_APP_DIR/agento-bot-stop.sh"
+          "$CODEX_COMMAND" login status >/dev/null 2>&1 || { echo "Codex is not authenticated for this VPS user. Run codex login as the bot user first."; exit 1; }
+          [ -d "$CODEX_WORKDIR" ] && [ -x "$CODEX_WORKDIR" ] || { echo "CODEX_WORKDIR is not accessible to the bot user: $CODEX_WORKDIR"; exit 1; }
+          case "$CODEX_AUTH_MODE" in
+            chatgpt|api-key) ;;
+            *) echo "CODEX_AUTH_MODE must be chatgpt or api-key"; exit 1 ;;
+          esac
+          if [ -n "${CODEX_MODEL_CATALOG_FILE:-}" ]; then
+            [ -f "$CODEX_MODEL_CATALOG_FILE" ] && [ -r "$CODEX_MODEL_CATALOG_FILE" ] || { echo "CODEX_MODEL_CATALOG_FILE is not readable: $CODEX_MODEL_CATALOG_FILE"; exit 1; }
           fi
 
-          if [ -f app.pid ]; then
-            OLD_PID=$(cat app.pid || true)
-            if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
-              kill "$OLD_PID" || true
-              sleep 2
-            fi
-            if [ -n "${OLD_PID:-}" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
-              kill -9 "$OLD_PID" || true
-            fi
-            rm -f app.pid
+          LEGACY_APP_DIR="$HOME"
+          if [ "$LEGACY_APP_DIR" != "$APP_DIR" ] && [ -f "$LEGACY_APP_DIR/app.pid" ]; then
+            APP_DIR="$LEGACY_APP_DIR" bash "$INCOMING_DIR/agento-bot-stop.sh"
+            echo "Legacy runtime stopped; files in $LEGACY_APP_DIR are preserved."
           fi
+
+          APP_DIR="$APP_DIR" bash "$INCOMING_DIR/agento-bot-stop.sh"
 
           rm -f app.jar app.env agento-bot-status.sh agento-bot-stop.sh app.log app.pid
           mv "$INCOMING_DIR/app.jar" app.jar
@@ -268,15 +263,24 @@ jobs:
           mv "$INCOMING_DIR/codex-version.txt" codex-version.txt
           chmod +x agento-bot-status.sh agento-bot-stop.sh
 
-          nohup "$JAVA_COMMAND" -jar app.jar > app.log 2>&1 &
+          nohup "$JAVA_COMMAND" -jar "$APP_DIR/app.jar" > app.log 2>&1 &
           echo $! > app.pid
-          sleep 3
+          NEW_PID=$(cat app.pid)
+          READY=false
+          for attempt in {1..75}; do
+            kill -0 "$NEW_PID" 2>/dev/null || break
+            if grep -qF 'AGENTO_TELEGRAM_READY' app.log; then
+              READY=true
+              break
+            fi
+            sleep 2
+          done
 
-          if ! ps -p "$(cat app.pid)" >/dev/null 2>&1; then
-            echo "Bot failed to start. Last logs:"
+          if [ "$READY" != true ]; then
+            echo "Bot did not confirm Telegram polling readiness within 150 seconds. Last logs:"
             tail -n 100 app.log || true
             exit 1
           fi
 
-          echo "Agento bot started. PID=$(cat app.pid)"
+          echo "Agento bot is receiving Telegram updates. PID=$NEW_PID"
           REMOTE

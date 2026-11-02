@@ -267,12 +267,23 @@ Run the installer from the updated repository as that same user to install the p
 ./scripts/install-codex-on-vps.sh
 ```
 
-Deployment checks Java and Codex versions before stopping the existing bot.
-It does not install or upgrade Java or Codex automatically. A successful version
-check does not verify Codex authentication or model availability.
+Deployment checks Java and Codex versions, `codex login status`, the working
+directory, and an optional external catalog file before stopping the existing bot.
+It does not install or upgrade Java or Codex automatically. The login check only
+confirms locally available credentials; it does not verify access to every model.
+
+The workflow builds the executable jar with `-Dmaven.test.skip=true`, skipping
+both test compilation and execution. Deployments are serialized. An existing bot
+gets up to 30 seconds to stop before forced termination; a PID is stopped only
+when its working directory and jar command match the expected runtime.
+The new process must confirm its first successful Telegram `getUpdates` request
+within 150 seconds. Otherwise the workflow fails and prints the startup log.
+There is no automatic rollback after replacing the jar.
 
 Deployment preserves `agento-session.properties`, `agento-settings.properties`,
 and the CLI's session storage. A custom `CODEX_SESSION_FILE` can be supplied as a
 GitHub Actions secret; its parent directory must be writable by the bot user.
+When migrating from a runtime directly in `$HOME`, a verified legacy process is
+stopped, while its old runtime files are preserved.
 
 If Codex was installed through `nvm` and is not available in the PATH of a non-interactive SSH session, the workflow will try to find the binary inside `$HOME`.

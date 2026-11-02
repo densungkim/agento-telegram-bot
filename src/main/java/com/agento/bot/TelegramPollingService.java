@@ -37,6 +37,7 @@ public class TelegramPollingService {
     private final TelegramMenus menus;
     private final long startedAtEpochSeconds = Instant.now().getEpochSecond();
     private final AtomicBoolean polling = new AtomicBoolean();
+    private final AtomicBoolean telegramReady = new AtomicBoolean();
     private final AtomicReference<ActiveTask> activeTask = new AtomicReference<>();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(threads("agento-task-runner"));
     private final ScheduledExecutorService progress = Executors.newSingleThreadScheduledExecutor(threads("agento-progress"));
@@ -85,7 +86,11 @@ public class TelegramPollingService {
             return;
         }
         try {
-            for (JsonNode update : telegram.getUpdates(offset).path("result")) {
+            JsonNode response = telegram.getUpdates(offset);
+            if (telegramReady.compareAndSet(false, true)) {
+                log.info("AGENTO_TELEGRAM_READY");
+            }
+            for (JsonNode update : response.path("result")) {
                 offset = update.path("update_id").longValue() + 1;
                 try {
                     if (update.path("callback_query").asOptional().isPresent()) {
@@ -109,6 +114,13 @@ public class TelegramPollingService {
         progress.shutdownNow();
         processes.cancelActiveProcess();
         worker.shutdownNow();
+        try {
+            if (!worker.awaitTermination(10, TimeUnit.SECONDS)) {
+                log.warn("Task worker did not finish within the shutdown grace period");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void handleMessage(JsonNode message) {
