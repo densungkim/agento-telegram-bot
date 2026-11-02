@@ -82,7 +82,8 @@ public class TelegramClient {
         sendKeyboard(chatId, text, List.of(
                 List.of("/status", "/cancel"),
                 List.of("/model", "/reasoning"),
-                List.of("/mode", "/help")
+                List.of("/mode", "/help"),
+                List.of("/new")
         ), false);
     }
 

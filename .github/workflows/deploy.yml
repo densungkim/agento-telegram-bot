@@ -59,6 +59,7 @@ jobs:
           CODEX_REASONING_EFFORT: ${{ secrets.CODEX_REASONING_EFFORT }}
           CODEX_ACCESS_MODE: ${{ secrets.CODEX_ACCESS_MODE }}
           CODEX_SETTINGS_FILE: ${{ secrets.CODEX_SETTINGS_FILE }}
+          CODEX_SESSION_FILE: ${{ secrets.CODEX_SESSION_FILE }}
           CODEX_AUTH_MODE: ${{ secrets.CODEX_AUTH_MODE }}
           CODEX_MODEL_CATALOG_FILE: ${{ secrets.CODEX_MODEL_CATALOG_FILE }}
           CODEX_ALLOWED_MODELS: ${{ secrets.CODEX_ALLOWED_MODELS }}
@@ -84,6 +85,7 @@ jobs:
           : "${CODEX_REASONING_EFFORT:=default}"
           : "${CODEX_ACCESS_MODE:=full-access}"
           : "${CODEX_SETTINGS_FILE:=./agento-settings.properties}"
+          : "${CODEX_SESSION_FILE:=./agento-session.properties}"
           : "${CODEX_AUTH_MODE:=chatgpt}"
           : "${CODEX_ALLOWED_ACCESS_MODES:=read-only,workspace,full-access}"
 
@@ -104,6 +106,7 @@ jobs:
           write_env CODEX_REASONING_EFFORT
           write_env CODEX_ACCESS_MODE
           write_env CODEX_SETTINGS_FILE
+          write_env CODEX_SESSION_FILE
           write_env CODEX_AUTH_MODE
           write_env CODEX_MODEL_CATALOG_FILE
           write_env CODEX_ALLOWED_MODELS

@@ -21,6 +21,7 @@ agentobot:
     access-mode: ${CODEX_ACCESS_MODE:full-access}
     skip-git-repo-check: ${CODEX_SKIP_GIT_REPO_CHECK:true}
     settings-file: ${CODEX_SETTINGS_FILE:./agento-settings.properties}
+    session-file: ${CODEX_SESSION_FILE:./agento-session.properties}
     auth-mode: ${CODEX_AUTH_MODE:chatgpt}
     model-catalog-file: ${CODEX_MODEL_CATALOG_FILE:}
     allowed-models: ${CODEX_ALLOWED_MODELS:}

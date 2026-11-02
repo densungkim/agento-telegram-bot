@@ -27,4 +27,6 @@ tmp/
 *.pid
 .env
 agento-settings.properties
+agento-session.properties
+agento-session-*.new
 app.env

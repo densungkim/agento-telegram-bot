@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +27,7 @@ public class TelegramPollingService {
     private final ProcessRunner processRunner;
     private final BotProperties properties;
     private final CodexSettingsService settingsService;
+    private final CodexSessionStore sessions;
     private final long startedAtEpochSeconds = Instant.now().getEpochSecond();
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final AtomicReference<ActiveTask> activeTask = new AtomicReference<>();
@@ -40,7 +40,8 @@ public class TelegramPollingService {
             CodexRunner codexRunner,
             ProcessRunner processRunner,
             BotProperties properties,
-            CodexSettingsService settingsService
+            CodexSettingsService settingsService,
+            CodexSessionStore sessions
     ) {
         if (properties.telegram().allowedChatId() == 0) {
             throw new IllegalStateException("TELEGRAM_ALLOWED_CHAT_ID is required and cannot be 0");
@@ -50,6 +51,7 @@ public class TelegramPollingService {
         this.processRunner = processRunner;
         this.properties = properties;
         this.settingsService = settingsService;
+        this.sessions = sessions;
     }
 
     @PostConstruct
@@ -61,6 +63,7 @@ public class TelegramPollingService {
                     new TelegramClient.BotCommand("ping", "Check bot health"),
                     new TelegramClient.BotCommand("status", "Show Codex settings"),
                     new TelegramClient.BotCommand("cancel", "Stop active Codex task"),
+                    new TelegramClient.BotCommand("new", "Удалить контекст и начать новую сессию"),
                     new TelegramClient.BotCommand("model", "Choose Codex model"),
                     new TelegramClient.BotCommand("reasoning", "Choose reasoning effort"),
                     new TelegramClient.BotCommand("mode", "Choose access mode")
@@ -144,6 +147,11 @@ public class TelegramPollingService {
             return;
         }
 
+        if (text.equals("/new")) {
+            runAndReply(chatId, "Очистка сессии /new", codexRunner::newSession);
+            return;
+        }
+
         if (handleSettingsCommand(chatId, text)) {
             return;
         }
@@ -206,40 +214,61 @@ public class TelegramPollingService {
 
     private void runAndReply(long chatId, String prompt, Task task) {
         ActiveTask active = new ActiveTask(Instant.now(), preview(prompt));
-        if (!activeTask.compareAndSet(null, active)) {
-            telegramClient.sendMainMenu(chatId, "A task is already running. Use /status or /cancel.");
+        if (processRunner.hasActiveProcess() || !activeTask.compareAndSet(null, active)) {
+            telegramClient.sendMainMenu(chatId, "Задача ещё выполняется или отменяется. Дождитесь завершения; используйте /status или /cancel.");
             return;
         }
 
         telegramClient.sendTyping(chatId);
-        Future<?> future = executorService.submit(() -> {
-            try {
-                String result = task.run();
-                telegramClient.sendMessage(chatId, result);
-            } catch (Exception e) {
-                telegramClient.sendMessage(chatId, "Error: " + e.getMessage());
-            } finally {
-                activeTask.compareAndSet(active, null);
-            }
-        });
-        active.future = future;
+        try {
+            executorService.execute(() -> {
+                active.worker = Thread.currentThread();
+                try {
+                    if (!active.cancelRequested) {
+                        String result = task.run();
+                        if (!active.cancelRequested) {
+                            telegramClient.sendMessage(chatId, result);
+                        }
+                    }
+                } catch (Exception e) {
+                    if (!active.cancelRequested) {
+                        telegramClient.sendMessage(chatId, "Error: " + e.getMessage());
+                    }
+                } finally {
+                    active.worker = null;
+                    activeTask.compareAndSet(active, null);
+                    if (active.cancelRequested) {
+                        telegramClient.sendMainMenu(chatId, processRunner.hasActiveProcess()
+                                ? "Процесс ещё останавливается. Проверьте /status перед /new."
+                                : "Обработка отмены завершена. Сессия: " + sessions.description());
+                    }
+                }
+            });
+        } catch (RuntimeException e) {
+            activeTask.compareAndSet(active, null);
+            throw e;
+        }
     }
 
     private void cancelTask(long chatId) {
         ActiveTask active = activeTask.get();
         if (active == null) {
-            telegramClient.sendMainMenu(chatId, "No active task.");
+            if (processRunner.hasActiveProcess()) {
+                processRunner.cancelActiveProcess();
+                telegramClient.sendMainMenu(chatId, "Повторно запрошена остановка процесса. Проверьте /status.");
+            } else {
+                telegramClient.sendMainMenu(chatId, "Нет активной задачи.");
+            }
             return;
         }
 
-        boolean processCancelled = processRunner.cancelActiveProcess();
-        Future<?> future = active.future;
-        if (future != null) {
-            future.cancel(true);
+        active.cancelRequested = true;
+        Thread worker = active.worker;
+        if (worker != null) {
+            worker.interrupt();
         }
-        activeTask.compareAndSet(active, null);
-
-        telegramClient.sendMainMenu(chatId, processCancelled ? "Stopped the active process." : "Task cancelled.");
+        processRunner.cancelActiveProcess();
+        telegramClient.sendMainMenu(chatId, "Отмена запрошена. Дождитесь завершения обработки перед /new.");
     }
 
     private String helpText() {
@@ -252,6 +281,7 @@ public class TelegramPollingService {
                 /ping - check that the bot is alive
                 /status - current settings and busy state
                 /cancel - stop the active task
+                /new - удалить текущий контекст; следующее сообщение начнёт новую сессию
                 /model - choose model
                 /reasoning - choose reasoning effort
                 /mode - choose Codex access mode
@@ -267,6 +297,7 @@ public class TelegramPollingService {
                 workdir: %s
                 codex command: %s
                 settings file: %s
+                session: %s
                 busy: %s
                 active task: %s
 
@@ -276,7 +307,8 @@ public class TelegramPollingService {
                 properties.codex().workdir(),
                 properties.codex().command(),
                 properties.codex().settingsFile(),
-                activeTask.get() != null,
+                sessions.description(),
+                activeTask.get() != null || processRunner.hasActiveProcess(),
                 activeTaskDescription(),
                 settingsSummary(settingsService.current())
         );
@@ -318,7 +350,7 @@ public class TelegramPollingService {
             return "none";
         }
         long seconds = Math.max(0, Instant.now().getEpochSecond() - active.startedAt().getEpochSecond());
-        return active.promptPreview() + " (" + seconds + "s)";
+        return active.promptPreview() + " (" + seconds + "s)" + (active.cancelRequested ? " — отменяется" : "");
     }
 
     private String preview(String text) {
@@ -342,7 +374,8 @@ public class TelegramPollingService {
     private static final class ActiveTask {
         private final Instant startedAt;
         private final String promptPreview;
-        private volatile Future<?> future;
+        private volatile Thread worker;
+        private volatile boolean cancelRequested;
 
         private ActiveTask(Instant startedAt, String promptPreview) {
             this.startedAt = startedAt;

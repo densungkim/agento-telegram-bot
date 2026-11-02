@@ -30,6 +30,8 @@ Version references:
 - prepends a VPS safety prompt before each Codex task;
 - lets you change the model, reasoning effort, and access mode without redeploying;
 - stores runtime settings in `agento-settings.properties` next to the jar;
+- continues one Codex session across messages and bot restarts;
+- removes the bot's previous session on `/new`, without keeping a second transcript;
 - restricts access to one `TELEGRAM_ALLOWED_CHAT_ID`.
 
 Plain text messages are treated as Codex tasks. Slash commands are reserved for the bot UI.
@@ -40,11 +42,59 @@ Plain text messages are treated as Codex tasks. Slash commands are reserved for 
 /ping
 /status
 /cancel
+/new
 /model
 /reasoning
 /mode
 check docker ps and give a short report
 ```
+
+## Conversation Context
+
+The first task runs `codex exec --json`. The bot records the UUID from
+`thread.started` immediately, using an atomic replacement of
+`CODEX_SESSION_FILE` (default: `./agento-session.properties`). Later messages use
+`codex exec resume <UUID>`; the bot never uses `--last` or silently switches to
+a new session when resuming fails. Stdout JSON events and stderr diagnostics are
+read separately. No copy of the messages or execution events is stored by the bot.
+
+The state file contains the session UUID, an ownership marker, the working
+directory, the effective `CODEX_HOME`, and whether a reset is pending. It is bound
+to that workdir and Codex home so a changed deployment configuration cannot reset
+a session in another CLI installation. Keep the same OS user, workdir, Codex home,
+and state-file path across restarts and deployments. The CLI's existing auth and
+configuration stay in that same Codex home; the bot does not copy them.
+Run one bot process per state file.
+
+`/new` removes the recorded session through `codex delete <UUID> --force`. Codex
+also deletes its spawned descendant sessions and associated session metadata.
+After successful deletion, the bot clears the UUID; the next text message creates
+a fresh conversation. Model, reasoning, and access settings are preserved.
+Unrelated CLI sessions, server files, and Telegram messages are left in place.
+Shared CLI caches and logs are not wiped. See
+[Codex session commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli#codex-delete)
+and [session deletion semantics](https://learn.chatgpt.com/docs/app-server#threads).
+
+If deletion fails, times out, or is cancelled, the old UUID and reset marker stay
+available. New tasks are blocked until `/new` succeeds, including after a restart.
+An idle bot can retry `/new`; it does not discard a failed cleanup and start
+accumulating new sessions. `/status` shows the current session and pending reset.
+The CLI's `thread not found` error for the exact recorded UUID is treated as an
+already completed deletion, so a reset can recover after a crash between deleting
+the CLI session and clearing the bot's state file.
+
+`/new` is refused while a task or cancellation is in progress. `/cancel` requests
+process termination and keeps the bot busy until the worker finishes. Termination
+also targets the subprocesses visible under the CLI process; it cannot undo
+commands that have already changed the VPS or control detached services.
+
+Unreadable, invalid, or differently bound state files fail startup. An error saving
+a newly observed UUID stops execution and blocks further tasks until `/new`; an
+abrupt OS/process kill before the UUID is saved can still leave an untracked CLI
+session. Keep the state file and Codex session storage together for recovery.
+Existing one-shot sessions created before this change are not imported or deleted.
+
+## Models and Reasoning
 
 Model and reasoning options come from `src/main/resources/codex-models.json`,
 based on the bundled catalog of Codex CLI 0.166.0. This is a compatibility snapshot,
@@ -150,6 +200,7 @@ CODEX_ALLOWED_REASONING_EFFORTS=
 CODEX_ALLOWED_ACCESS_MODES=read-only,workspace,full-access
 CODEX_ACCESS_MODE=full-access
 CODEX_SETTINGS_FILE=./agento-settings.properties
+CODEX_SESSION_FILE=./agento-session.properties
 CODEX_SYSTEM_PROMPT=...
 ```
 
@@ -174,5 +225,9 @@ Run the installer from the updated repository as that same user to install the p
 Deployment checks Java and Codex versions before stopping the existing bot.
 It does not install or upgrade Java or Codex automatically. A successful version
 check does not verify Codex authentication or model availability.
+
+Deployment preserves `agento-session.properties`, `agento-settings.properties`,
+and the CLI's session storage. A custom `CODEX_SESSION_FILE` can be supplied as a
+GitHub Actions secret; its parent directory must be writable by the bot user.
 
 If Codex was installed through `nvm` and is not available in the PATH of a non-interactive SSH session, the workflow will try to find the binary inside `$HOME`.

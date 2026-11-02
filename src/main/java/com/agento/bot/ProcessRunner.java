@@ -7,10 +7,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 @Component
 public class ProcessRunner {
@@ -24,34 +27,96 @@ public class ProcessRunner {
     }
 
     public CommandResult run(List<String> command, File workdir, Duration timeout, String input) {
+        return run(command, workdir, timeout, input, Map.of(), null);
+    }
+
+    public CommandResult run(List<String> command, File workdir, Duration timeout, String input,
+                             Map<String, String> environment, Consumer<String> stdoutListener) {
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.directory(workdir);
-        processBuilder.redirectErrorStream(true);
+        processBuilder.environment().putAll(environment);
+        processBuilder.redirectErrorStream(stdoutListener == null);
+        Object listenerLock = new Object();
+        AtomicBoolean acceptingEvents = new AtomicBoolean(true);
+        AtomicReference<String> listenerError = new AtomicReference<>();
+        Process process = null;
+        CompletableFuture<String> eventsFuture = null;
 
         try {
-            Process process = processBuilder.start();
-            activeProcess.set(process);
+            if (hasActiveProcess()) {
+                return new CommandResult(-1, false, "Another process is still running.");
+            }
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException();
+            }
+            process = processBuilder.start();
+            if (!activeProcess.compareAndSet(null, process)) {
+                process.destroyForcibly();
+                return new CommandResult(-1, false, "Another process is still running.");
+            }
+            Process running = process;
 
-            CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(process));
+            CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(running,
+                    stdoutListener != null, null));
+            eventsFuture = stdoutListener == null ? null
+                    : CompletableFuture.supplyAsync(() -> readOutput(running, false, line -> {
+                        synchronized (listenerLock) {
+                            if (acceptingEvents.get() && listenerError.get() == null) {
+                                try {
+                                    stdoutListener.accept(line);
+                                } catch (RuntimeException e) {
+                                    listenerError.set("Failed to process Codex event: " + e.getMessage());
+                                    cancelActiveProcess();
+                                }
+                            }
+                        }
+                    }));
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException();
+            }
             String inputError = writeProcessInput(process, input);
             boolean finished = process.waitFor(timeout.toSeconds(), TimeUnit.SECONDS);
 
             if (!finished) {
-                process.destroyForcibly();
+                cancelActiveProcess();
+                if (eventsFuture != null) {
+                    readOutputWithTimeout(eventsFuture);
+                }
                 String output = readOutputWithTimeout(outputFuture);
                 return new CommandResult(-1, true, appendInputError(output, inputError));
             }
 
-            String output = readOutputWithTimeout(outputFuture);
+            String eventsOutput = eventsFuture == null ? "" : readOutputWithTimeout(eventsFuture);
+            String output = appendInputError(readOutputWithTimeout(outputFuture), eventsOutput);
+            if (listenerError.get() != null) {
+                return new CommandResult(-1, false, appendInputError(output, listenerError.get()));
+            }
             return new CommandResult(process.exitValue(), false, appendInputError(output, inputError));
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             cancelActiveProcess();
+            if (eventsFuture != null) {
+                try {
+                    readOutputWithTimeout(eventsFuture);
+                } catch (Exception ignored) {
+                    // Preserve cancellation while giving a buffered thread.started event a chance to persist.
+                }
+            }
+            Thread.currentThread().interrupt();
             return new CommandResult(-1, false, "Command interrupted.");
         } catch (Exception e) {
             return new CommandResult(-1, false, "Failed to run command: " + e.getMessage());
         } finally {
-            activeProcess.set(null);
+            synchronized (listenerLock) {
+                acceptingEvents.set(false);
+            }
+            if (process != null) {
+                if (process.isAlive() && activeProcess.get() == process) {
+                    cancelActiveProcess();
+                }
+                if (!process.isAlive()) {
+                    activeProcess.compareAndSet(process, null);
+                }
+            }
         }
     }
 
@@ -61,16 +126,42 @@ public class ProcessRunner {
             return false;
         }
 
+        List<ProcessHandle> descendants = process.descendants().toList();
+        descendants.reversed().forEach(ProcessHandle::destroy);
         process.destroy();
+        boolean interrupted = Thread.interrupted();
         try {
             if (!process.waitFor(3, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
+                process.waitFor(3, TimeUnit.SECONDS);
             }
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            interrupted = true;
             process.destroyForcibly();
+            try {
+                process.waitFor(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        } finally {
+            descendants.reversed().stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
-        return true;
+        return !process.isAlive();
+    }
+
+    public boolean hasActiveProcess() {
+        Process process = activeProcess.get();
+        if (process == null) {
+            return false;
+        }
+        if (process.isAlive()) {
+            return true;
+        }
+        activeProcess.compareAndSet(process, null);
+        return false;
     }
 
     private String writeProcessInput(Process process, String input) {
@@ -102,14 +193,18 @@ public class ProcessRunner {
         }
     }
 
-    private String readOutput(Process process) {
-        try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
+    private String readOutput(Process process, boolean stderr, Consumer<String> listener) {
+        try (var reader = stderr ? process.errorReader(StandardCharsets.UTF_8) : process.inputReader(StandardCharsets.UTF_8)) {
             StringBuilder output = new StringBuilder();
             int omittedChars = 0;
             String line;
             boolean firstLine = true;
 
             while ((line = reader.readLine()) != null) {
+                if (listener != null) {
+                    listener.accept(line);
+                    continue;
+                }
                 if (!firstLine) {
                     output.append('\n');
                 }

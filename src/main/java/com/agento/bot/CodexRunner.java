@@ -16,18 +16,23 @@ public class CodexRunner {
     private final BotProperties properties;
     private final ProcessRunner processRunner;
     private final CodexSettingsService settingsService;
+    private final CodexSessionStore sessions;
 
-    public CodexRunner(BotProperties properties, ProcessRunner processRunner, CodexSettingsService settingsService) {
+    public CodexRunner(BotProperties properties, ProcessRunner processRunner, CodexSettingsService settingsService,
+                       CodexSessionStore sessions) {
         this.properties = properties;
         this.processRunner = processRunner;
         this.settingsService = settingsService;
+        this.sessions = sessions;
     }
 
     public String runCodex(String userPrompt) {
         CodexSettings settings;
+        String sessionId;
         try {
             settings = settingsService.settingsForRun();
-        } catch (IllegalArgumentException e) {
+            sessionId = sessions.resumeId();
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return e.getMessage();
         }
         File workdir = new File(properties.codex().workdir());
@@ -37,13 +42,16 @@ public class CodexRunner {
 
         Path lastMessageFile = null;
         try {
+            CodexEventStream events = new CodexEventStream(sessions, sessionId);
             lastMessageFile = Files.createTempFile("agento-codex-last-message-", ".txt");
-            List<String> command = buildCodexCommand(lastMessageFile, settings);
+            List<String> command = buildCodexCommand(lastMessageFile, settings, sessionId);
             CommandResult result = processRunner.run(
                     command,
                     workdir,
                     Duration.ofSeconds(properties.codex().timeoutSeconds()),
-                    buildPrompt(userPrompt)
+                    buildPrompt(userPrompt),
+                    sessions.environment(),
+                    events
             );
 
             String lastMessage = readLastMessage(lastMessageFile);
@@ -52,15 +60,26 @@ public class CodexRunner {
                 return limitOutput("Codex timed out after " + properties.codex().timeoutSeconds() + " seconds.\n\n" + firstNotBlank(lastMessage, result.output()));
             }
 
+            if (!events.error().isBlank()) {
+                return limitOutput("Ошибка Codex: " + events.error() + "\n\n" + firstNotBlank(lastMessage, result.output()));
+            }
+
+            if (result.exitCode() == 0 && !events.started()) {
+                return "Codex не подтвердил ID сессии. Результат не будет автоматически повторён.\n\n"
+                        + limitOutput(firstNotBlank(lastMessage, result.output()));
+            }
+
             if (result.exitCode() == 0 && isNotBlank(lastMessage)) {
                 return limitOutput(lastMessage);
             }
 
             if (isNotBlank(lastMessage)) {
-                return limitOutput(lastMessage + "\n\nCodex exit code: " + result.exitCode());
+                return limitOutput("Codex exit code: " + result.exitCode() + "\n\n"
+                        + cleanOutput(result.output()) + "\n\n" + lastMessage);
             }
 
-            return limitOutput("Codex exit code: " + result.exitCode() + "\n\n" + cleanOutput(result.output()));
+            String resumeHint = sessionId == null ? "" : "\nСессия сохранена. Если она больше недоступна, используйте /new.";
+            return limitOutput("Codex exit code: " + result.exitCode() + resumeHint + "\n\n" + cleanOutput(result.output()));
         } catch (IOException e) {
             return "Failed to prepare Codex output file: " + e.getMessage();
         } finally {
@@ -68,10 +87,30 @@ public class CodexRunner {
         }
     }
 
-    private List<String> buildCodexCommand(Path lastMessageFile, CodexSettings settings) {
+    public String newSession() {
+        String id = sessions.beginReset();
+        if (id != null) {
+            CommandResult result = processRunner.run(
+                    List.of(properties.codex().command(), "delete", CodexSessionStore.checkedId(id), "--force"),
+                    new File(properties.codex().workdir()), Duration.ofSeconds(60), null,
+                    sessions.environment(), null);
+            // CLI 0.166.0 reports this exact UUID when a previous delete already completed.
+            boolean alreadyDeleted = !result.timedOut() && result.exitCode() != 0
+                    && result.output().contains("thread not found: " + id);
+            if (result.timedOut() || (result.exitCode() != 0 && !alreadyDeleted)) {
+                return limitOutput("Очистка сессии не завершена. ID сохранён; новые запросы заблокированы."
+                        + " Повторите /new.\n\n" + cleanOutput(result.output()));
+            }
+        }
+        sessions.finishReset(id);
+        return "Предыдущий контекст удалён. Следующее сообщение начнёт новую сессию. Настройки сохранены.";
+    }
+
+    private List<String> buildCodexCommand(Path lastMessageFile, CodexSettings settings, String sessionId) {
         List<String> command = new ArrayList<>();
         command.add(properties.codex().command());
         command.add("exec");
+        command.add("--json");
         command.add("--color");
         command.add("never");
         command.add("--output-last-message");
@@ -100,6 +139,10 @@ public class CodexRunner {
             command.add(settings.sandboxMode());
         }
 
+        if (sessionId != null) {
+            command.add("resume");
+            command.add(CodexSessionStore.checkedId(sessionId));
+        }
         command.add("-");
         return command;
     }
