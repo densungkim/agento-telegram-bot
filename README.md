@@ -3,6 +3,26 @@
 Telegram bot for running OpenAI Codex CLI on a VPS as the `agento` user.
 The project is built as a regular Spring Boot jar and deployed without Docker.
 
+## Runtime and Development Requirements
+
+- Java 25 LTS, with current security updates, for development and the VPS runtime;
+- Maven 3.9.16 for development and CI;
+- Spring Boot 4.1.2, which manages the Spring, Jackson, and Maven plugin versions;
+- Codex CLI 0.166.0 or newer (stable releases only), authenticated as the bot's OS user;
+- Node.js 22+ and npm when using the npm-based Codex installer.
+
+The bot uses Spring's blocking REST client and the JDK HTTP client for Telegram.
+It does not need an embedded web server. Java's compilation target remains 25.
+
+The Codex installer pins the version from `scripts/codex-version.txt` instead of
+installing the moving npm `latest` tag. This file also sets the minimum CLI version
+checked by deployment. To update this baseline, change the file, review the CLI
+release notes, and update the VPS installation deliberately.
+
+Version references:
+[Spring Boot requirements](https://docs.spring.io/spring-boot/system-requirements.html),
+[Codex CLI release notes](https://learn.chatgpt.com/docs/changelog).
+
 ## Features
 
 - accepts Telegram tasks and runs `codex exec` in `/home/agento`;
@@ -98,11 +118,16 @@ cp .env.example .env
 
 ## VPS
 
-Java 25 and Codex CLI must be installed on the VPS. Codex must already be authenticated for the `agento` user.
-To install Codex through npm:
+Java 25 LTS and a supported Codex CLI version must be installed on the VPS.
+Codex must already be authenticated for the `agento` user.
+Run the installer from the updated repository as that same user to install the pinned Codex version:
 
 ```bash
 ./scripts/install-codex-on-vps.sh
 ```
+
+Deployment checks Java and Codex versions before stopping the existing bot.
+It does not install or upgrade Java or Codex automatically. A successful version
+check does not verify Codex authentication or model availability.
 
 If Codex was installed through `nvm` and is not available in the PATH of a non-interactive SSH session, the workflow will try to find the binary inside `$HOME`.

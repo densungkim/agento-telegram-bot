@@ -66,6 +66,7 @@ jobs:
           cp target/agento-telegram-bot-0.0.1-SNAPSHOT.jar deploy/app.jar
           cp scripts/agento-bot-status.sh deploy/agento-bot-status.sh
           cp scripts/agento-bot-stop.sh deploy/agento-bot-stop.sh
+          cp scripts/codex-version.txt deploy/codex-version.txt
 
           : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN secret is required}"
           : "${TELEGRAM_ALLOWED_CHAT_ID:?TELEGRAM_ALLOWED_CHAT_ID secret is required}"
@@ -115,7 +116,7 @@ jobs:
           : "${VPS_APP_DIR:=/home/agento/agento-bot}"
 
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR/.incoming' && rm -f '$VPS_APP_DIR/.incoming/'*"
-          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/.incoming/"
+          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh deploy/codex-version.txt "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/.incoming/"
 
       - name: Restart bot on VPS
         env:
@@ -138,6 +139,7 @@ jobs:
           [ -f "$INCOMING_DIR/app.env" ] || { echo "incoming app.env not found in $INCOMING_DIR"; exit 1; }
           [ -f "$INCOMING_DIR/agento-bot-status.sh" ] || { echo "incoming agento-bot-status.sh not found in $INCOMING_DIR"; exit 1; }
           [ -f "$INCOMING_DIR/agento-bot-stop.sh" ] || { echo "incoming agento-bot-stop.sh not found in $INCOMING_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/codex-version.txt" ] || { echo "incoming codex-version.txt not found in $INCOMING_DIR"; exit 1; }
 
           load_user_env() {
             set +e +u
@@ -179,8 +181,34 @@ jobs:
             export PATH="$(dirname "$CODEX_COMMAND"):$PATH"
           fi
 
-          "$JAVA_COMMAND" -version >/dev/null 2>&1 || { echo "Java is not available in this non-interactive SSH session"; echo "PATH=$PATH"; exit 1; }
-          "$CODEX_COMMAND" --version >/dev/null 2>&1 || { echo "Codex CLI is not available. Install or authenticate it on VPS first."; echo "PATH=$PATH"; exit 1; }
+          JAVA_VERSION_OUTPUT=$("$JAVA_COMMAND" -version 2>&1) || { echo "Java is not available in this non-interactive SSH session"; echo "PATH=$PATH"; exit 1; }
+          if [[ ! "$JAVA_VERSION_OUTPUT" =~ version[[:space:]]+\"([0-9]+) ]]; then
+            echo "Cannot determine Java version: $JAVA_VERSION_OUTPUT"
+            exit 1
+          fi
+          JAVA_MAJOR_VERSION="${BASH_REMATCH[1]}"
+          if (( JAVA_MAJOR_VERSION < 25 )); then
+            echo "Java 25 or newer is required; found Java $JAVA_MAJOR_VERSION. Java 25 LTS is recommended."
+            exit 1
+          fi
+
+          CODEX_VERSION_OUTPUT=$("$CODEX_COMMAND" --version) || { echo "Codex CLI is not available. Install it on VPS first."; echo "PATH=$PATH"; exit 1; }
+          if [[ ! "$CODEX_VERSION_OUTPUT" =~ ^codex-cli[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "A stable Codex CLI release is required; found: $CODEX_VERSION_OUTPUT"
+            exit 1
+          fi
+          INSTALLED_CODEX_VERSION="${BASH_REMATCH[1]}"
+          REQUIRED_CODEX_VERSION=$(tr -d '\r\n' < "$INCOMING_DIR/codex-version.txt")
+          if [[ ! "$REQUIRED_CODEX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid minimum Codex version in codex-version.txt"
+            exit 1
+          fi
+          LOWEST_CODEX_VERSION=$(printf '%s\n' "$REQUIRED_CODEX_VERSION" "$INSTALLED_CODEX_VERSION" | sort -V | head -n 1)
+          if [ "$LOWEST_CODEX_VERSION" != "$REQUIRED_CODEX_VERSION" ]; then
+            echo "Codex CLI $REQUIRED_CODEX_VERSION or newer is required; found $INSTALLED_CODEX_VERSION."
+            echo "Run scripts/install-codex-on-vps.sh from the updated repository as the bot user."
+            exit 1
+          fi
 
           LEGACY_APP_DIR="$HOME"
           if [ "$LEGACY_APP_DIR" != "$APP_DIR" ] && [ -f "$LEGACY_APP_DIR/app.pid" ]; then
@@ -219,6 +247,7 @@ jobs:
           mv "$INCOMING_DIR/app.env" app.env
           mv "$INCOMING_DIR/agento-bot-status.sh" agento-bot-status.sh
           mv "$INCOMING_DIR/agento-bot-stop.sh" agento-bot-stop.sh
+          mv "$INCOMING_DIR/codex-version.txt" codex-version.txt
           chmod +x agento-bot-status.sh agento-bot-stop.sh
 
           nohup "$JAVA_COMMAND" -jar app.jar > app.log 2>&1 &
