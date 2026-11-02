@@ -1,5 +1,7 @@
 package com.agento.bot;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -7,6 +9,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -15,24 +18,37 @@ import java.util.Properties;
 @Service
 public class CodexSettingsService {
 
+    private static final Logger log = LoggerFactory.getLogger(CodexSettingsService.class);
     private static final String MODEL = "model";
     private static final String REASONING_EFFORT = "reasoningEffort";
     private static final String ACCESS_MODE = "accessMode";
 
     private final Path settingsFile;
+    private final CodexModelCatalog catalog;
     private final List<String> allowedModels;
-    private final List<String> allowedReasoningEfforts;
+    private final List<String> reasoningFilter;
     private final List<String> allowedAccessModes;
 
     private CodexSettings current;
 
-    public CodexSettingsService(BotProperties properties) {
+    public CodexSettingsService(BotProperties properties, CodexModelCatalog catalog) {
         BotProperties.Codex codex = properties.codex();
-        this.settingsFile = Path.of(valueOrDefault(codex.settingsFile(), "./agento-settings.properties"));
-        this.allowedModels = splitCsv(codex.allowedModels());
-        this.allowedReasoningEfforts = splitCsv(codex.allowedReasoningEfforts());
+        this.settingsFile = Path.of(valueOrDefault(codex.settingsFile(), "./agento-settings.properties"))
+                .toAbsolutePath().normalize();
+        this.catalog = catalog;
+        List<String> modelFilter = splitCsv(codex.allowedModels());
+        this.allowedModels = catalog.modelIds().stream()
+                .filter(model -> modelFilter.isEmpty() || modelFilter.contains(model)).toList();
+        if (allowedModels.isEmpty()) {
+            throw new IllegalArgumentException("CODEX_ALLOWED_MODELS does not contain any model from the current catalog");
+        }
+        this.reasoningFilter = splitCsv(codex.allowedReasoningEfforts());
         this.allowedAccessModes = splitCsv(codex.allowedAccessModes());
         this.current = loadOrDefault(codex);
+        String problem = validationProblem();
+        if (!problem.isEmpty()) {
+            log.warn("Codex settings require an explicit update: {}", problem);
+        }
     }
 
     public synchronized CodexSettings current() {
@@ -42,33 +58,77 @@ public class CodexSettingsService {
     public synchronized CodexSettings setModel(String model) {
         String normalized = normalize(model);
         requireAllowed(normalized, allowedModels, "model");
-        current = new CodexSettings(normalized, current.reasoningEffort(), current.accessMode());
-        save();
-        return current;
+        String reasoning = reasoningOptions(normalized).contains(current.reasoningEffort())
+                ? current.reasoningEffort() : CodexSettings.DEFAULT;
+        return saveAndApply(new CodexSettings(normalized, reasoning, current.accessMode()));
     }
 
     public synchronized CodexSettings setReasoningEffort(String reasoningEffort) {
         String normalized = normalize(reasoningEffort);
-        requireAllowed(normalized, allowedReasoningEfforts, "reasoning");
-        current = new CodexSettings(current.model(), normalized, current.accessMode());
-        save();
-        return current;
+        requireAllowed(normalized, reasoningOptions(current.model()), "reasoning для " + current.model());
+        return saveAndApply(new CodexSettings(current.model(), normalized, current.accessMode()));
     }
 
     public synchronized CodexSettings setAccessMode(String accessMode) {
         String normalized = normalize(accessMode);
         requireAllowed(normalized, allowedAccessModes, "access mode");
-        current = new CodexSettings(current.model(), current.reasoningEffort(), normalized);
-        save();
-        return current;
+        return saveAndApply(new CodexSettings(current.model(), current.reasoningEffort(), normalized));
     }
 
     public List<String> allowedModels() {
         return allowedModels;
     }
 
-    public List<String> allowedReasoningEfforts() {
-        return allowedReasoningEfforts;
+    public synchronized List<String> allowedReasoningEfforts() {
+        if (!allowedModels.contains(current.model())) {
+            return List.of(CodexSettings.DEFAULT);
+        }
+        return reasoningOptions(current.model());
+    }
+
+    public synchronized CodexSettings settingsForRun() {
+        validateCurrent();
+        if (current.usesDefaultModel() || !current.usesDefaultReasoning()) {
+            return current;
+        }
+        return new CodexSettings(current.model(), catalog.model(current.model()).defaultReasoningEffort(),
+                current.accessMode());
+    }
+
+    public synchronized String validationProblem() {
+        try {
+            validateCurrent();
+            return "";
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    public String reasoningDescription(CodexSettings settings) {
+        if (!settings.usesDefaultReasoning()) {
+            return settings.reasoningEffort();
+        }
+        if (settings.usesDefaultModel() || !allowedModels.contains(settings.model())) {
+            return "default (настройки Codex CLI)";
+        }
+        return "default (" + catalog.model(settings.model()).defaultReasoningEffort() + ")";
+    }
+
+    private void validateCurrent() {
+        if (!allowedModels.contains(current.model())) {
+            throw new IllegalArgumentException("Модель '" + current.model()
+                    + "' отсутствует в разрешённом каталоге. Выберите модель через /model.");
+        }
+        if (!reasoningOptions(current.model()).contains(current.reasoningEffort())) {
+            throw new IllegalArgumentException("Reasoning '" + current.reasoningEffort()
+                    + "' не поддерживается для " + current.model() + ". Выберите значение через /reasoning.");
+        }
+    }
+
+    private List<String> reasoningOptions(String model) {
+        return catalog.reasoningEfforts(model).stream()
+                .filter(effort -> CodexSettings.DEFAULT.equals(effort)
+                        || reasoningFilter.isEmpty() || reasoningFilter.contains(effort)).toList();
     }
 
     public List<String> allowedAccessModes() {
@@ -77,8 +137,8 @@ public class CodexSettingsService {
 
     private CodexSettings loadOrDefault(BotProperties.Codex codex) {
         CodexSettings defaults = new CodexSettings(
-                firstAllowedOrDefault(codex.model(), allowedModels, "gpt-5.5"),
-                firstAllowedOrDefault(codex.reasoningEffort(), allowedReasoningEfforts, "medium"),
+                normalize(valueOrDefault(codex.model(), CodexSettings.DEFAULT)),
+                normalize(valueOrDefault(codex.reasoningEffort(), CodexSettings.DEFAULT)),
                 firstAllowedOrDefault(codex.accessMode(), allowedAccessModes, "full-access")
         );
 
@@ -90,32 +150,43 @@ public class CodexSettingsService {
         try (InputStream input = Files.newInputStream(settingsFile)) {
             loaded.load(input);
         } catch (IOException e) {
-            return defaults;
+            throw new IllegalStateException("Failed to read settings from " + settingsFile, e);
         }
 
         return new CodexSettings(
-                firstAllowedOrDefault(loaded.getProperty(MODEL), allowedModels, defaults.model()),
-                firstAllowedOrDefault(loaded.getProperty(REASONING_EFFORT), allowedReasoningEfforts, defaults.reasoningEffort()),
+                normalize(valueOrDefault(loaded.getProperty(MODEL), defaults.model())),
+                normalize(valueOrDefault(loaded.getProperty(REASONING_EFFORT), defaults.reasoningEffort())),
                 firstAllowedOrDefault(loaded.getProperty(ACCESS_MODE), allowedAccessModes, defaults.accessMode())
         );
     }
 
-    private void save() {
+    private CodexSettings saveAndApply(CodexSettings next) {
         Properties properties = new Properties();
-        properties.setProperty(MODEL, current.model());
-        properties.setProperty(REASONING_EFFORT, current.reasoningEffort());
-        properties.setProperty(ACCESS_MODE, current.accessMode());
+        properties.setProperty(MODEL, next.model());
+        properties.setProperty(REASONING_EFFORT, next.reasoningEffort());
+        properties.setProperty(ACCESS_MODE, next.accessMode());
 
+        Path staged = null;
         try {
-            Path parent = settingsFile.toAbsolutePath().getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            try (OutputStream output = Files.newOutputStream(settingsFile)) {
+            Path parent = settingsFile.getParent();
+            Files.createDirectories(parent);
+            staged = Files.createTempFile(parent, "agento-settings-", ".new");
+            try (OutputStream output = Files.newOutputStream(staged)) {
                 properties.store(output, "Agento Telegram Bot runtime Codex settings");
             }
+            Files.move(staged, settingsFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            current = next;
+            return current;
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to save settings to " + settingsFile.toAbsolutePath(), e);
+            throw new IllegalStateException("Failed to save settings to " + settingsFile, e);
+        } finally {
+            if (staged != null) {
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException e) {
+                    log.warn("Failed to remove settings staging file: {}", e.getMessage());
+                }
+            }
         }
     }
 

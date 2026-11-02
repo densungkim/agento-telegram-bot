@@ -1,0 +1,60 @@
+{
+  "cliVersion": "0.166.0",
+  "source": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/models-manager/models.json",
+  "models": [
+    {
+      "id": "gpt-6.1-sol",
+      "defaultReasoningEffort": "low",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "defaultReasoningEffort": "low",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-6-astra",
+      "defaultReasoningEffort": "low",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-6-sol",
+      "defaultReasoningEffort": "medium",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-6-luna",
+      "defaultReasoningEffort": "medium",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "defaultReasoningEffort": "low",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "defaultReasoningEffort": "medium",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "defaultReasoningEffort": "medium",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+      "authModes": ["chatgpt", "api-key"]
+    },
+    {
+      "id": "gpt-5.5",
+      "defaultReasoningEffort": "medium",
+      "reasoningEfforts": ["low", "medium", "high", "xhigh"],
+      "authModes": ["api-key"]
+    }
+  ]
+}

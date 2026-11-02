@@ -26,6 +26,8 @@ public record BotProperties(
             boolean skipGitRepoCheck,
             String systemPrompt,
             String settingsFile,
+            String authMode,
+            String modelCatalogFile,
             String allowedModels,
             String allowedReasoningEfforts,
             String allowedAccessModes

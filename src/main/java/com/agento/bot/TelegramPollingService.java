@@ -153,19 +153,28 @@ public class TelegramPollingService {
 
     private boolean handleSettingsCommand(long chatId, String text) {
         if (text.equals("/model")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Codex model", "/model", settingsService.allowedModels()), keyboard("/model", settingsService.allowedModels()));
+            telegramClient.sendKeyboard(chatId, optionsText("Модель Codex", "/model", settingsService.allowedModels())
+                    + "\n\ndefault — использовать настройки Codex CLI."
+                    + "\nПрофиль каталога: " + properties.codex().authMode()
+                    + "\nДоступ к модели зависит от вашей учётной записи."
+                    + "\nПри смене модели несовместимый reasoning сбрасывается на default.",
+                    keyboard("/model", settingsService.allowedModels()));
             return true;
         }
         if (text.startsWith("/model ")) {
-            return updateSetting(chatId, () -> settingsService.setModel(text.substring("/model ".length())), "Model updated");
+            return updateSetting(chatId, () -> settingsService.setModel(text.substring("/model ".length())), "Модель обновлена");
         }
 
         if (text.equals("/reasoning")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Reasoning effort", "/reasoning", settingsService.allowedReasoningEfforts()), keyboard("/reasoning", settingsService.allowedReasoningEfforts()));
+            telegramClient.sendKeyboard(chatId, optionsText("Reasoning для " + settingsService.current().model(),
+                    "/reasoning", settingsService.allowedReasoningEfforts())
+                    + "\n\ndefault — значение по умолчанию для выбранной модели."
+                    + "\nДля model=default используется конфигурация CLI; для выбора уровня укажите модель.",
+                    keyboard("/reasoning", settingsService.allowedReasoningEfforts()));
             return true;
         }
         if (text.startsWith("/reasoning ")) {
-            return updateSetting(chatId, () -> settingsService.setReasoningEffort(text.substring("/reasoning ".length())), "Reasoning updated");
+            return updateSetting(chatId, () -> settingsService.setReasoningEffort(text.substring("/reasoning ".length())), "Reasoning обновлён");
         }
 
         if (text.equals("/mode")) {
@@ -274,17 +283,21 @@ public class TelegramPollingService {
     }
 
     private String settingsSummary(CodexSettings settings) {
-        return """
+        String summary = """
                 model: %s
                 reasoning: %s
+                catalog profile: %s
                 mode: %s
                 sandbox: %s
                 """.formatted(
-                settings.model(),
-                settings.reasoningEffort(),
+                settings.usesDefaultModel() ? "default (настройки Codex CLI)" : settings.model(),
+                settingsService.reasoningDescription(settings),
+                properties.codex().authMode(),
                 settings.accessMode(),
                 settings.usesDangerousBypass() ? "bypassed" : settings.sandboxMode()
         ).strip();
+        String problem = settingsService.validationProblem();
+        return problem.isEmpty() ? summary : summary + "\n\nТребуется обновить настройки:\n" + problem;
     }
 
     private String optionsText(String title, String command, List<String> options) {

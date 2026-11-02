@@ -5,6 +5,16 @@ public record CodexSettings(
         String reasoningEffort,
         String accessMode
 ) {
+    public static final String DEFAULT = "default";
+
+    public boolean usesDefaultModel() {
+        return DEFAULT.equals(model);
+    }
+
+    public boolean usesDefaultReasoning() {
+        return DEFAULT.equals(reasoningEffort);
+    }
+
     public String sandboxMode() {
         return switch (accessMode) {
             case "read-only" -> "read-only";

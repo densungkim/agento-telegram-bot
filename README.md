@@ -46,23 +46,63 @@ Plain text messages are treated as Codex tasks. Slash commands are reserved for 
 check docker ps and give a short report
 ```
 
-Default models:
+Model and reasoning options come from `src/main/resources/codex-models.json`,
+based on the bundled catalog of Codex CLI 0.166.0. This is a compatibility snapshot,
+not a live list of models enabled for your account.
 
-```text
-gpt-5.5
-gpt-5.4
-gpt-5.4-mini
-gpt-5.3-codex
-```
+| Model | Explicit reasoning levels | Catalog default |
+| --- | --- | --- |
+| `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-astra`, `gpt-5.6-sol` | low, medium, high, xhigh, max, ultra | low |
+| `gpt-6-sol`, `gpt-5.6-terra` | low, medium, high, xhigh, max, ultra | medium |
+| `gpt-6-luna`, `gpt-5.6-luna` | low, medium, high, xhigh, max | medium |
+| `gpt-5.5` (API-key catalog only) | low, medium, high, xhigh | medium |
 
-Reasoning effort:
+Every model also has a `default` reasoning option. For an explicit model, the bot
+passes that model's catalog default to Codex. With `/model default`, both model
+and reasoning overrides are omitted: your CLI configuration and its own defaults
+apply. Only `/reasoning default` is offered in this mode, since the bot does not
+know which model the CLI will resolve.
 
-```text
-low
-medium
-high
-xhigh
-```
+`CODEX_AUTH_MODE=chatgpt` is the default catalog profile. Set it to `api-key` when
+the CLI uses an API key. This setting only filters the bot's menu; it does not
+change or verify authentication. GPT-5.5 retired from ChatGPT-authenticated Codex
+on October 14, 2026, but remains available with API-key authentication. GPT-5.4,
+GPT-5.4-mini, and GPT-5.3-Codex are no longer offered in the bundled bot menu.
+See the [official model availability guidance](https://learn.chatgpt.com/docs/models).
+
+The reasoning menu depends on the selected model. Changing a model preserves
+compatible reasoning; an incompatible value is reset to `default` and shown in
+the settings summary. `none` and `minimal` are not advertised for the current
+bundled models; a replacement catalog can include them for a compatible model.
+Ultra enables automatic task delegation and can use more time and account quota.
+
+Saved model and reasoning choices are never silently migrated. If a stored choice
+is no longer supported by the active catalog or filters, `/status` explains how
+to select a replacement. Tasks are blocked until the settings are corrected.
+The bot does not automatically retry a task with another model after a CLI error.
+
+For a different provider or newer model metadata, set `CODEX_MODEL_CATALOG_FILE`
+to an existing JSON file on the VPS using the same structure as the bundled file,
+then restart the bot. The file replaces the entire catalog. Update it from
+metadata matching your CLI version and provider; listing a model does not grant
+account access. Hidden specialist and auto-review models are omitted by default.
+
+`CODEX_ALLOWED_MODELS` optionally restricts the catalog to listed IDs (include
+`default` explicitly if you want the CLI-configured model option). An empty value
+exposes the whole catalog profile. A filter with no matching entries fails at
+startup. `CODEX_ALLOWED_REASONING_EFFORTS` optionally restricts explicit effort
+choices within each model's supported set; the `default` choice remains available.
+
+Runtime choices in `agento-settings.properties` take precedence over environment
+defaults. Settings are saved through an atomic file replacement before being
+applied in memory. Unreadable settings fail startup rather than silently reverting.
+
+When upgrading an existing installation, review old `CODEX_MODEL`,
+`CODEX_REASONING_EFFORT`, and `CODEX_ALLOWED_MODELS` environment values or GitHub
+Actions secrets. Replace obsolete model filters or clear them, set the matching
+catalog authentication profile, then select a model explicitly in Telegram if
+the saved choice needs replacement. Choosing `/model default` also resets an
+explicit reasoning override to `default`.
 
 `/mode` values:
 
@@ -101,8 +141,13 @@ CODEX_COMMAND=codex
 CODEX_WORKDIR=/home/agento
 CODEX_TIMEOUT_SECONDS=900
 CODEX_MAX_OUTPUT_CHARS=30000
-CODEX_MODEL=gpt-5.5
-CODEX_REASONING_EFFORT=medium
+CODEX_MODEL=default
+CODEX_REASONING_EFFORT=default
+CODEX_AUTH_MODE=chatgpt
+CODEX_MODEL_CATALOG_FILE=
+CODEX_ALLOWED_MODELS=
+CODEX_ALLOWED_REASONING_EFFORTS=
+CODEX_ALLOWED_ACCESS_MODES=read-only,workspace,full-access
 CODEX_ACCESS_MODE=full-access
 CODEX_SETTINGS_FILE=./agento-settings.properties
 CODEX_SYSTEM_PROMPT=...

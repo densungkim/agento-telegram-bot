@@ -24,6 +24,12 @@ public class CodexRunner {
     }
 
     public String runCodex(String userPrompt) {
+        CodexSettings settings;
+        try {
+            settings = settingsService.settingsForRun();
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
         File workdir = new File(properties.codex().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
             return "CODEX_WORKDIR does not exist or is not a directory: " + workdir.getAbsolutePath();
@@ -32,7 +38,7 @@ public class CodexRunner {
         Path lastMessageFile = null;
         try {
             lastMessageFile = Files.createTempFile("agento-codex-last-message-", ".txt");
-            List<String> command = buildCodexCommand(lastMessageFile);
+            List<String> command = buildCodexCommand(lastMessageFile, settings);
             CommandResult result = processRunner.run(
                     command,
                     workdir,
@@ -62,8 +68,7 @@ public class CodexRunner {
         }
     }
 
-    private List<String> buildCodexCommand(Path lastMessageFile) {
-        CodexSettings settings = settingsService.current();
+    private List<String> buildCodexCommand(Path lastMessageFile, CodexSettings settings) {
         List<String> command = new ArrayList<>();
         command.add(properties.codex().command());
         command.add("exec");
@@ -74,12 +79,12 @@ public class CodexRunner {
         command.add("--cd");
         command.add(properties.codex().workdir());
 
-        if (isNotBlank(settings.model())) {
+        if (!settings.usesDefaultModel()) {
             command.add("--model");
             command.add(settings.model());
         }
 
-        if (isNotBlank(settings.reasoningEffort())) {
+        if (!settings.usesDefaultReasoning()) {
             command.add("--config");
             command.add("model_reasoning_effort=\"" + settings.reasoningEffort() + "\"");
         }
