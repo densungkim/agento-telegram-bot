@@ -93,7 +93,7 @@ public class CodexSessionStore {
 
     public synchronized void finishReset(String expectedId) {
         if (!java.util.Objects.equals(sessionId, expectedId)) {
-            throw new IllegalStateException("Session changed while resetting");
+            throw new IllegalStateException("Сессия изменилась во время очистки.");
         }
         save(null, false);
     }
@@ -141,7 +141,7 @@ public class CodexSessionStore {
 
     public static String checkedId(String id) {
         if (id == null || !UUID.fromString(id).toString().equals(id)) {
-            throw new IllegalArgumentException("Codex session ID must be a canonical UUID");
+            throw new IllegalArgumentException("ID сессии Codex должен быть UUID в стандартном формате.");
         }
         return id;
     }

@@ -1,7 +1,7 @@
 package com.agento.bot;
 
-import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -9,67 +9,73 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+import static com.agento.bot.TelegramClient.Button;
+import static com.agento.bot.TelegramMenus.Screen;
 
 @Service
 public class TelegramPollingService {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramPollingService.class);
-
-    private final TelegramClient telegramClient;
-    private final CodexRunner codexRunner;
-    private final ProcessRunner processRunner;
+    private final TelegramClient telegram;
+    private final CodexRunner codex;
+    private final ProcessRunner processes;
     private final BotProperties properties;
-    private final CodexSettingsService settingsService;
+    private final CodexSettingsService settings;
     private final CodexSessionStore sessions;
+    private final TelegramMenus menus;
     private final long startedAtEpochSeconds = Instant.now().getEpochSecond();
-    private final AtomicBoolean polling = new AtomicBoolean(false);
+    private final AtomicBoolean polling = new AtomicBoolean();
     private final AtomicReference<ActiveTask> activeTask = new AtomicReference<>();
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor(new AgentThreadFactory());
+    private final ExecutorService worker = Executors.newSingleThreadExecutor(threads("agento-task-runner"));
+    private final ScheduledExecutorService progress = Executors.newSingleThreadScheduledExecutor(threads("agento-progress"));
+    private long offset;
 
-    private long offset = 0;
-
-    public TelegramPollingService(
-            TelegramClient telegramClient,
-            CodexRunner codexRunner,
-            ProcessRunner processRunner,
-            BotProperties properties,
-            CodexSettingsService settingsService,
-            CodexSessionStore sessions
-    ) {
+    public TelegramPollingService(TelegramClient telegram, CodexRunner codex, ProcessRunner processes,
+                                  BotProperties properties, CodexSettingsService settings,
+                                  CodexSessionStore sessions, TelegramMenus menus) {
         if (properties.telegram().allowedChatId() == 0) {
             throw new IllegalStateException("TELEGRAM_ALLOWED_CHAT_ID is required and cannot be 0");
         }
-        this.telegramClient = telegramClient;
-        this.codexRunner = codexRunner;
-        this.processRunner = processRunner;
+        this.telegram = telegram;
+        this.codex = codex;
+        this.processes = processes;
         this.properties = properties;
-        this.settingsService = settingsService;
+        this.settings = settings;
         this.sessions = sessions;
+        this.menus = menus;
     }
 
     @PostConstruct
-    public void configureTelegramCommands() {
+    public void configureTelegram() {
+        progress.scheduleWithFixedDelay(this::refreshProgress, 5, 5, TimeUnit.SECONDS);
         try {
-            telegramClient.setCommands(List.of(
-                    new TelegramClient.BotCommand("start", "Show menu"),
-                    new TelegramClient.BotCommand("help", "Show help"),
-                    new TelegramClient.BotCommand("ping", "Check bot health"),
-                    new TelegramClient.BotCommand("status", "Show Codex settings"),
-                    new TelegramClient.BotCommand("cancel", "Stop active Codex task"),
-                    new TelegramClient.BotCommand("new", "Удалить контекст и начать новую сессию"),
-                    new TelegramClient.BotCommand("model", "Choose Codex model"),
-                    new TelegramClient.BotCommand("reasoning", "Choose reasoning effort"),
-                    new TelegramClient.BotCommand("mode", "Choose access mode")
+            telegram.initialize();
+            telegram.setCommands(List.of(
+                    new TelegramClient.BotCommand("start", "Открыть управление ботом"),
+                    new TelegramClient.BotCommand("menu", "Модель, reasoning и доступ"),
+                    new TelegramClient.BotCommand("help", "Как пользоваться ботом"),
+                    new TelegramClient.BotCommand("ping", "Проверить связь"),
+                    new TelegramClient.BotCommand("status", "Сессия и текущая задача"),
+                    new TelegramClient.BotCommand("cancel", "Отменить текущую задачу"),
+                    new TelegramClient.BotCommand("new", "Удалить контекст и начать заново"),
+                    new TelegramClient.BotCommand("model", "Выбрать модель"),
+                    new TelegramClient.BotCommand("reasoning", "Выбрать уровень reasoning"),
+                    new TelegramClient.BotCommand("mode", "Выбрать режим доступа")
             ));
-        } catch (Exception e) {
-            log.warn("Failed to update Telegram bot commands: {}", e.getMessage());
+        } catch (TelegramClient.ApiException e) {
+            log.warn("Could not configure Telegram commands: {}", e.getMessage());
         }
     }
 
@@ -78,19 +84,21 @@ public class TelegramPollingService {
         if (!polling.compareAndSet(false, true)) {
             return;
         }
-
         try {
-            JsonNode response = telegramClient.getUpdates(offset);
-            if (response == null || !response.path("ok").booleanValue(false)) {
-                log.warn("Telegram getUpdates returned non-ok response: {}", response);
-                return;
-            }
-
-            for (JsonNode update : response.path("result")) {
-                handleUpdate(update);
+            for (JsonNode update : telegram.getUpdates(offset).path("result")) {
+                offset = update.path("update_id").longValue() + 1;
+                try {
+                    if (update.path("callback_query").asOptional().isPresent()) {
+                        handleCallback(update.path("callback_query"));
+                    } else if (update.path("message").asOptional().isPresent()) {
+                        handleMessage(update.path("message"));
+                    }
+                } catch (Exception e) {
+                    log.warn("Could not handle Telegram update: {}", e.getMessage());
+                }
             }
         } catch (Exception e) {
-            log.warn("Polling error: {}", e.getMessage());
+            log.warn("Telegram polling error: {}", e.getMessage());
         } finally {
             polling.set(false);
         }
@@ -98,306 +106,422 @@ public class TelegramPollingService {
 
     @PreDestroy
     public void shutdown() {
-        processRunner.cancelActiveProcess();
-        executorService.shutdownNow();
+        progress.shutdownNow();
+        processes.cancelActiveProcess();
+        worker.shutdownNow();
     }
 
-    private void handleUpdate(JsonNode update) {
-        long updateId = update.path("update_id").longValue();
-        offset = updateId + 1;
-
-        JsonNode message = update.path("message");
-        if (message.asOptional().isEmpty()) {
-            return;
-        }
-
-        long messageDate = message.path("date").longValue(0);
-        if (messageDate > 0 && messageDate < startedAtEpochSeconds - 10) {
-            return;
-        }
-
+    private void handleMessage(JsonNode message) {
         long chatId = message.path("chat").path("id").longValue();
+        long date = message.path("date").longValue(0);
+        if (chatId != properties.telegram().allowedChatId()
+                || (date > 0 && date < startedAtEpochSeconds - 10)) {
+            return;
+        }
+        int replyTo = message.path("message_id").intValue();
         String text = message.path("text").asString("").strip();
         if (text.isBlank()) {
+            telegram.sendScreen(chatId, "Пока принимаю только текст. Опишите задачу сообщением.",
+                    menus.mainButtons(), replyTo);
+            return;
+        }
+        if (!text.startsWith("/")) {
+            startCodex(chatId, replyTo, text);
             return;
         }
 
-        if (chatId != properties.telegram().allowedChatId()) {
-            telegramClient.sendMessage(chatId, "Access denied.");
+        String[] parts = text.split("\\s+", 2);
+        String command = parts[0].toLowerCase(Locale.ROOT);
+        String argument = parts.length == 2 ? parts[1].strip() : "";
+        int mention = command.indexOf('@');
+        if (mention >= 0) {
+            if (telegram.username().isBlank()) {
+                telegram.initialize();
+            }
+            if (!command.substring(mention + 1).equalsIgnoreCase(telegram.username())) {
+                return;
+            }
+            command = command.substring(0, mention);
+        }
+        if (command.equals("/model") || command.equals("/reasoning") || command.equals("/mode")) {
+            String kind = command.substring(1);
+            if (argument.isBlank()) {
+                show(chatId, null, replyTo, menus.options(kind, 0));
+            } else {
+                updateSetting(chatId, null, replyTo, kind, argument);
+            }
             return;
         }
-
-        if (text.equals("/start") || text.equals("/help")) {
-            telegramClient.sendMainMenu(chatId, helpText());
+        if (!argument.isBlank()) {
+            show(chatId, null, replyTo, menus.main("Эта команда не принимает аргументы."));
             return;
         }
-
-        if (text.equals("/ping")) {
-            telegramClient.sendMessage(chatId, "pong");
-            return;
+        switch (command) {
+            case "/start" -> {
+                telegram.removeLegacyKeyboard(chatId);
+                show(chatId, null, replyTo, menus.main("Agento готов. Отправьте задачу обычным текстом."));
+            }
+            case "/help" -> show(chatId, null, replyTo, help());
+            case "/menu", "/settings" -> show(chatId, null, replyTo, menus.main(""));
+            case "/status" -> show(chatId, null, replyTo, status());
+            case "/ping" -> telegram.sendScreen(chatId, "На связи.", menus.mainButtons(), replyTo);
+            case "/cancel" -> cancelCurrent(chatId, null, replyTo);
+            case "/new" -> startReset(chatId, replyTo);
+            default -> show(chatId, null, replyTo, menus.main("Неизвестная команда. Используйте кнопки или /help."));
         }
-
-        if (text.equals("/status") || text.equals("/settings")) {
-            telegramClient.sendMainMenu(chatId, statusText());
-            return;
-        }
-
-        if (text.equals("/cancel")) {
-            cancelTask(chatId);
-            return;
-        }
-
-        if (text.equals("/new")) {
-            runAndReply(chatId, "Очистка сессии /new", codexRunner::newSession);
-            return;
-        }
-
-        if (handleSettingsCommand(chatId, text)) {
-            return;
-        }
-
-        runCodex(chatId, text);
     }
 
-    private boolean handleSettingsCommand(long chatId, String text) {
-        if (text.equals("/model")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Модель Codex", "/model", settingsService.allowedModels())
-                    + "\n\ndefault — использовать настройки Codex CLI."
-                    + "\nПрофиль каталога: " + properties.codex().authMode()
-                    + "\nДоступ к модели зависит от вашей учётной записи."
-                    + "\nПри смене модели несовместимый reasoning сбрасывается на default.",
-                    keyboard("/model", settingsService.allowedModels()));
-            return true;
+    private void handleCallback(JsonNode query) {
+        String queryId = query.path("id").asString("");
+        long chatId = query.path("message").path("chat").path("id").longValue();
+        int messageId = query.path("message").path("message_id").intValue();
+        if (chatId != properties.telegram().allowedChatId() || messageId <= 0) {
+            telegram.answerCallback(queryId, "Кнопка недоступна.");
+            return;
         }
-        if (text.startsWith("/model ")) {
-            return updateSetting(chatId, () -> settingsService.setModel(text.substring("/model ".length())), "Модель обновлена");
+        String data = query.path("data").asString("");
+        if (data.startsWith("cancel:")) {
+            ActiveTask active = activeTask.get();
+            if (active == null || !active.id.equals(data.substring("cancel:".length()))) {
+                telegram.answerCallback(queryId, "Кнопка этой задачи устарела. Используйте /status.");
+            } else if (active.finishing) {
+                telegram.answerCallback(queryId, "Выполнение уже завершено. Доставляю ответ.");
+            } else {
+                telegram.answerCallback(queryId, "Отмена запрошена.");
+                requestCancel(active);
+            }
+            return;
         }
-
-        if (text.equals("/reasoning")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Reasoning для " + settingsService.current().model(),
-                    "/reasoning", settingsService.allowedReasoningEfforts())
-                    + "\n\ndefault — значение по умолчанию для выбранной модели."
-                    + "\nДля model=default используется конфигурация CLI; для выбора уровня укажите модель.",
-                    keyboard("/reasoning", settingsService.allowedReasoningEfforts()));
-            return true;
-        }
-        if (text.startsWith("/reasoning ")) {
-            return updateSetting(chatId, () -> settingsService.setReasoningEffort(text.substring("/reasoning ".length())), "Reasoning обновлён");
-        }
-
-        if (text.equals("/mode")) {
-            telegramClient.sendKeyboard(chatId, optionsText("Codex access mode", "/mode", settingsService.allowedAccessModes()), keyboard("/mode", settingsService.allowedAccessModes()));
-            return true;
-        }
-        if (text.startsWith("/mode ")) {
-            return updateSetting(chatId, () -> settingsService.setAccessMode(text.substring("/mode ".length())), "Codex mode updated");
-        }
-
-        return false;
-    }
-
-    private boolean updateSetting(long chatId, SettingsUpdate update, String successPrefix) {
+        telegram.answerCallback(queryId, "");
         try {
-            CodexSettings settings = update.apply();
-            telegramClient.sendMainMenu(chatId, successPrefix + ".\n\n" + settingsSummary(settings));
-        } catch (IllegalArgumentException e) {
-            telegramClient.sendMessage(chatId, e.getMessage());
-        } catch (Exception e) {
-            telegramClient.sendMessage(chatId, "Failed to save setting: " + e.getMessage());
-        }
-        return true;
-    }
-
-    private void runCodex(long chatId, String prompt) {
-        runAndReply(chatId, prompt, () -> codexRunner.runCodex(prompt));
-    }
-
-    private void runAndReply(long chatId, String prompt, Task task) {
-        ActiveTask active = new ActiveTask(Instant.now(), preview(prompt));
-        if (processRunner.hasActiveProcess() || !activeTask.compareAndSet(null, active)) {
-            telegramClient.sendMainMenu(chatId, "Задача ещё выполняется или отменяется. Дождитесь завершения; используйте /status или /cancel.");
-            return;
-        }
-
-        telegramClient.sendTyping(chatId);
-        try {
-            executorService.execute(() -> {
-                active.worker = Thread.currentThread();
-                try {
-                    if (!active.cancelRequested) {
-                        String result = task.run();
-                        if (!active.cancelRequested) {
-                            telegramClient.sendMessage(chatId, result);
-                        }
-                    }
-                } catch (Exception e) {
-                    if (!active.cancelRequested) {
-                        telegramClient.sendMessage(chatId, "Error: " + e.getMessage());
-                    }
-                } finally {
-                    active.worker = null;
-                    activeTask.compareAndSet(active, null);
-                    if (active.cancelRequested) {
-                        telegramClient.sendMainMenu(chatId, processRunner.hasActiveProcess()
-                                ? "Процесс ещё останавливается. Проверьте /status перед /new."
-                                : "Обработка отмены завершена. Сессия: " + sessions.description());
-                    }
+            if (data.startsWith("page:") || data.startsWith("choose:")) {
+                String[] parts = data.split(":", -1);
+                if (parts.length != 4) {
+                    throw new IllegalArgumentException("Некорректная кнопка.");
                 }
-            });
+                int index = Integer.parseInt(parts[3]);
+                if (parts[0].equals("page")) {
+                    if (!menus.currentPage(parts[1], parts[2])) {
+                        throw new IllegalArgumentException("Меню устарело.");
+                    }
+                    show(chatId, messageId, messageId, menus.options(parts[1], index));
+                } else {
+                    String value = menus.resolveChoice(parts[1], parts[2], index);
+                    updateSetting(chatId, messageId, messageId, parts[1], value);
+                }
+                return;
+            }
+            switch (data) {
+                case "menu" -> show(chatId, messageId, messageId, menus.main(""));
+                case "models" -> show(chatId, messageId, messageId, menus.options("model", 0));
+                case "reasoning" -> show(chatId, messageId, messageId, menus.options("reasoning", 0));
+                case "modes" -> show(chatId, messageId, messageId, menus.options("mode", 0));
+                case "status" -> show(chatId, messageId, messageId, status());
+                case "help" -> show(chatId, messageId, messageId, help());
+                case "cancel" -> cancelCurrent(chatId, messageId, messageId);
+                case "new" -> startReset(chatId, messageId);
+                default -> show(chatId, messageId, messageId, menus.main("Кнопка устарела. Выберите действие заново."));
+            }
+        } catch (IllegalArgumentException e) {
+            show(chatId, messageId, messageId, menus.main("Меню изменилось. Выберите настройку заново."));
+        }
+    }
+
+    private void updateSetting(long chatId, Integer editId, int replyTo, String kind, String value) {
+        String notice;
+        try {
+            switch (kind) {
+                case "model" -> settings.setModel(value);
+                case "reasoning" -> settings.setReasoningEffort(value);
+                case "mode" -> settings.setAccessMode(value);
+                default -> throw new IllegalArgumentException("Неизвестная настройка.");
+            }
+            notice = "Настройка сохранена." + (busy() ? " Она применяется к следующим запросам." : "");
+        } catch (IllegalArgumentException e) {
+            notice = e.getMessage();
+        } catch (Exception e) {
+            log.warn("Could not save bot setting: {}", e.getMessage());
+            notice = "Не удалось сохранить настройку. Предыдущее значение осталось в силе.";
+        }
+        show(chatId, editId, replyTo, menus.main(notice));
+    }
+
+    private void startCodex(long chatId, int replyTo, String prompt) {
+        if (busy()) {
+            showBusy(chatId, replyTo);
+            return;
+        }
+        CodexSettings snapshot;
+        try {
+            snapshot = settings.settingsForRun();
+            sessions.resumeId();
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            show(chatId, null, replyTo, menus.main(e.getMessage()));
+            return;
+        }
+        startTask(chatId, replyTo, prompt, snapshot, "Запускаю Codex.",
+                updates -> codex.runCodex(prompt, snapshot, updates));
+    }
+
+    private void startReset(long chatId, int replyTo) {
+        startTask(chatId, replyTo, "Сброс контекста /new", null, "Удаляю предыдущую сессию.",
+                updates -> codex.newSession());
+    }
+
+    private void startTask(long chatId, int replyTo, String prompt, CodexSettings snapshot,
+                           String phase, Task task) {
+        ActiveTask active = new ActiveTask(chatId, replyTo, prompt, snapshot, phase);
+        if (processes.hasActiveProcess() || !activeTask.compareAndSet(null, active)) {
+            showBusy(chatId, replyTo);
+            return;
+        }
+        try {
+            active.messageId = telegram.sendScreen(chatId,
+                    progressText(active, "Запрос принят."), progressButtons(active), replyTo);
+            if (active.messageId <= 0) {
+                throw new IllegalStateException("Telegram не подтвердил сообщение о запуске.");
+            }
+            worker.execute(() -> runTask(active, task));
         } catch (RuntimeException e) {
             activeTask.compareAndSet(active, null);
             throw e;
         }
     }
 
-    private void cancelTask(long chatId) {
-        ActiveTask active = activeTask.get();
-        if (active == null) {
-            if (processRunner.hasActiveProcess()) {
-                processRunner.cancelActiveProcess();
-                telegramClient.sendMainMenu(chatId, "Повторно запрошена остановка процесса. Проверьте /status.");
-            } else {
-                telegramClient.sendMainMenu(chatId, "Нет активной задачи.");
+    private void runTask(ActiveTask active, Task task) {
+        active.worker = Thread.currentThread();
+        String result = null;
+        String terminal = "Обработка завершена.";
+        try {
+            if (!active.cancelRequested) {
+                result = task.run(phase -> active.phase = phase);
             }
+        } catch (Exception e) {
+            log.warn("Bot task failed: {}", e.getMessage());
+            result = "Не удалось обработать запрос: " + e.getMessage();
+            terminal = "Ошибка обработки.";
+        } finally {
+            active.finishing = true;
+            boolean interrupted = Thread.interrupted();
+            try {
+                if (active.cancelRequested) {
+                    terminal = processes.hasActiveProcess()
+                            ? "Процесс ещё останавливается. Проверьте /status."
+                            : "Обработка отмены завершена.";
+                } else if (result != null) {
+                    finishProgress(active, "Доставляю ответ.");
+                    try {
+                        telegram.sendResult(active.chatId, result, active.replyTo, active.shortId());
+                    } catch (TelegramClient.ApiException e) {
+                        log.warn("Could not deliver bot result: {}", e.getMessage());
+                        terminal = "Обработка завершена, но ответ не доставлен в Telegram."
+                                + "\n" + TelegramTextFormatter.clip(e.getMessage(), 180)
+                                + "\nЗадача не запускалась повторно.";
+                    }
+                }
+                finishProgress(active, terminal + "\nСессия: " + sessions.description());
+            } finally {
+                active.worker = null;
+                activeTask.compareAndSet(active, null);
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+
+    private void refreshProgress() {
+        ActiveTask active = activeTask.get();
+        if (active == null || active.messageId <= 0 || active.finishing
+                || (active.nextUpdateNanos != 0 && System.nanoTime() - active.nextUpdateNanos < 0)) {
             return;
         }
-
-        active.cancelRequested = true;
-        Thread worker = active.worker;
-        if (worker != null) {
-            worker.interrupt();
+        try {
+            synchronized (active.uiLock) {
+                if (active.finishing || activeTask.get() != active) {
+                    return;
+                }
+                telegram.editScreen(active.chatId, active.messageId,
+                        progressText(active, active.cancelRequested ? "Отмена запрошена." : "Выполняется."),
+                        progressButtons(active));
+                telegram.sendTyping(active.chatId);
+            }
+        } catch (TelegramClient.ApiException e) {
+            active.nextUpdateNanos = System.nanoTime()
+                    + TimeUnit.SECONDS.toNanos(Math.max(5, e.retryAfterSeconds()));
+            log.debug("Could not update task progress: {}", e.getMessage());
+        } catch (Exception e) {
+            log.warn("Could not render task progress: {}", e.getMessage());
         }
-        processRunner.cancelActiveProcess();
-        telegramClient.sendMainMenu(chatId, "Отмена запрошена. Дождитесь завершения обработки перед /new.");
     }
 
-    private String helpText() {
-        return """
-                Agento Bot is ready.
-
-                You can send plain text, and it will be sent to Codex as a task.
-
-                Bot controls:
-                /ping - check that the bot is alive
-                /status - current settings and busy state
-                /cancel - stop the active task
-                /new - удалить текущий контекст; следующее сообщение начнёт новую сессию
-                /model - choose model
-                /reasoning - choose reasoning effort
-                /mode - choose Codex access mode
-
-                Any other message is sent directly to Codex.
-                """;
-    }
-
-    private String statusText() {
-        return """
-                Agento Bot status:
-                user: %s
-                workdir: %s
-                codex command: %s
-                settings file: %s
-                session: %s
-                busy: %s
-                active task: %s
-
-                %s
-                """.formatted(
-                System.getProperty("user.name"),
-                properties.codex().workdir(),
-                properties.codex().command(),
-                properties.codex().settingsFile(),
-                sessions.description(),
-                activeTask.get() != null || processRunner.hasActiveProcess(),
-                activeTaskDescription(),
-                settingsSummary(settingsService.current())
-        );
-    }
-
-    private String settingsSummary(CodexSettings settings) {
-        String summary = """
-                model: %s
-                reasoning: %s
-                catalog profile: %s
-                mode: %s
-                sandbox: %s
-                """.formatted(
-                settings.usesDefaultModel() ? "default (настройки Codex CLI)" : settings.model(),
-                settingsService.reasoningDescription(settings),
-                properties.codex().authMode(),
-                settings.accessMode(),
-                settings.usesDangerousBypass() ? "bypassed" : settings.sandboxMode()
-        ).strip();
-        String problem = settingsService.validationProblem();
-        return problem.isEmpty() ? summary : summary + "\n\nТребуется обновить настройки:\n" + problem;
-    }
-
-    private String optionsText(String title, String command, List<String> options) {
-        return title + ":\n" + String.join("\n", options.stream().map(option -> command + " " + option).toList());
-    }
-
-    private List<List<String>> keyboard(String command, List<String> options) {
-        List<List<String>> rows = new ArrayList<>();
-        for (String option : options) {
-            rows.add(List.of(command + " " + option));
+    private void finishProgress(ActiveTask active, String state) {
+        try {
+            synchronized (active.uiLock) {
+                telegram.editScreen(active.chatId, active.messageId,
+                        progressText(active, state), List.of(List.of(
+                                new Button("Меню", "menu"), new Button("Статус", "status"))));
+            }
+        } catch (TelegramClient.ApiException e) {
+            log.warn("Could not finalize task progress: {}", e.getMessage());
         }
-        return rows;
     }
 
-    private String activeTaskDescription() {
+    private void cancelCurrent(long chatId, Integer editId, int replyTo) {
         ActiveTask active = activeTask.get();
+        String notice;
         if (active == null) {
-            return "none";
+            if (processes.hasActiveProcess()) {
+                processes.cancelActiveProcess();
+                notice = "Повторно запрошена остановка процесса. Проверьте /status.";
+            } else {
+                notice = "Нет активной задачи.";
+            }
+        } else if (active.finishing) {
+            notice = "Выполнение уже завершено. Доставляю результат.";
+        } else {
+            requestCancel(active);
+            notice = "Отмена запрошена. Дождитесь её завершения перед /new.";
         }
-        long seconds = Math.max(0, Instant.now().getEpochSecond() - active.startedAt().getEpochSecond());
-        return active.promptPreview() + " (" + seconds + "s)" + (active.cancelRequested ? " — отменяется" : "");
+        show(chatId, editId, replyTo, menus.main(notice));
     }
 
-    private String preview(String text) {
-        String normalized = text.replaceAll("\\s+", " ").strip();
-        if (normalized.length() <= 80) {
-            return normalized;
+    private void requestCancel(ActiveTask active) {
+        if (active.finishing) {
+            return;
         }
-        return normalized.substring(0, 77) + "...";
+        active.cancelRequested = true;
+        active.phase = "Останавливаю Codex.";
+        Thread running = active.worker;
+        if (running != null) {
+            running.interrupt();
+        }
+        processes.cancelActiveProcess();
+    }
+
+    private String progressText(ActiveTask active, String state) {
+        return "**Задача #" + active.shortId() + "** · " + active.elapsed()
+                + "\n" + active.preview + "\n\n" + state
+                + (active.finishing ? "" : "\n" + active.phase)
+                + (active.snapshot == null ? "" : "\n\n" + menus.summary(active.snapshot));
+    }
+
+    private List<List<Button>> progressButtons(ActiveTask active) {
+        return List.of(List.of(new Button("Отменить", "cancel:" + active.id),
+                new Button("Статус", "status")));
+    }
+
+    private void showBusy(long chatId, int replyTo) {
+        show(chatId, null, replyTo, new Screen(
+                "Запрос не принят: предыдущая задача выполняется или отменяется."
+                        + "\nДождитесь завершения либо используйте /cancel.",
+                menus.mainButtons()));
+    }
+
+    private boolean busy() {
+        return activeTask.get() != null || processes.hasActiveProcess();
+    }
+
+    private Screen status() {
+        ActiveTask active = activeTask.get();
+        String state = active == null ? (processes.hasActiveProcess() ? "Процесс ещё останавливается" : "Готов к запросу")
+                : (active.finishing ? "Доставляю ответ" : active.cancelRequested ? "Отменяю задачу" : "Выполняю задачу");
+        String text = "**Статус Agento**\n\n" + state + "\nСессия: " + sessions.description();
+        if (active != null) {
+            text += "\n\nЗадача #" + active.shortId() + " · " + active.elapsed()
+                    + "\n" + active.preview + "\n" + active.phase
+                    + (active.snapshot == null ? "" : "\n\nПараметры выполняемой задачи:\n" + menus.summary(active.snapshot));
+        }
+        text += "\n\nНастройки следующих запросов:\n" + menus.summary(settings.current())
+                + "\n\nРабочий каталог: " + properties.codex().workdir();
+        String problem = settings.validationProblem();
+        return new Screen(text + (problem.isBlank() ? "" : "\n\n" + problem), menus.mainButtons());
+    }
+
+    private Screen help() {
+        return new Screen("""
+                **Agento — помощник для VPS**
+
+                Отправляйте задачи обычным текстом. Следующие сообщения продолжают тот же разговор, в том числе после перезапуска бота.
+
+                /menu — модель, reasoning и доступ
+                /status — сессия и выполняемая задача
+                /cancel — запросить остановку задачи
+                /new — удалить текущий контекст
+                /model, /reasoning, /mode — выбор настройки
+                /ping — проверить связь
+
+                Одна задача за раз. Во время работы новые запросы не ставятся в очередь. Смена настроек относится к следующим запросам.
+
+                /new сохраняет настройки и удаляет текущую Codex-сессию. Сообщения Telegram и изменения на VPS сохраняются.
+
+                Длинные ответы приходят файлом. Неизвестные команды не отправляются в Codex.
+                """, menus.mainButtons());
+    }
+
+    private void show(long chatId, Integer editId, int replyTo, Screen screen) {
+        if (editId != null) {
+            ActiveTask active = activeTask.get();
+            if (active != null && active.chatId == chatId && active.messageId == editId) {
+                // A status button must not replace the live progress card.
+                telegram.sendScreen(chatId, screen.text(), screen.buttons(), replyTo);
+                return;
+            }
+            try {
+                telegram.editScreen(chatId, editId, screen.text(), screen.buttons());
+                return;
+            } catch (TelegramClient.ApiException e) {
+                if (!e.cannotEdit()) {
+                    throw e;
+                }
+            }
+        }
+        telegram.sendScreen(chatId, screen.text(), screen.buttons(), replyTo);
+    }
+
+    private static ThreadFactory threads(String name) {
+        return runnable -> {
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     @FunctionalInterface
     private interface Task {
-        String run();
-    }
-
-    @FunctionalInterface
-    private interface SettingsUpdate {
-        CodexSettings apply();
+        String run(Consumer<String> progress);
     }
 
     private static final class ActiveTask {
-        private final Instant startedAt;
-        private final String promptPreview;
+        private final String id = UUID.randomUUID().toString();
+        private final long startedNanos = System.nanoTime();
+        private final Object uiLock = new Object();
+        private final long chatId;
+        private final int replyTo;
+        private final String preview;
+        private final CodexSettings snapshot;
+        private volatile String phase;
+        private volatile int messageId;
+        private volatile long nextUpdateNanos;
         private volatile Thread worker;
         private volatile boolean cancelRequested;
+        private volatile boolean finishing;
 
-        private ActiveTask(Instant startedAt, String promptPreview) {
-            this.startedAt = startedAt;
-            this.promptPreview = promptPreview;
+        private ActiveTask(long chatId, int replyTo, String prompt, CodexSettings snapshot, String phase) {
+            this.chatId = chatId;
+            this.replyTo = replyTo;
+            this.preview = TelegramTextFormatter.clip(prompt.replaceAll("\\s+", " ").strip(), 100);
+            this.snapshot = snapshot;
+            this.phase = phase;
         }
 
-        private Instant startedAt() {
-            return startedAt;
+        private String shortId() {
+            return id.substring(0, 8);
         }
 
-        private String promptPreview() {
-            return promptPreview;
-        }
-    }
-
-    private static final class AgentThreadFactory implements ThreadFactory {
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable);
-            thread.setName("agento-task-runner");
-            thread.setDaemon(true);
-            return thread;
+        private String elapsed() {
+            long seconds = Math.max(0, TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedNanos));
+            return seconds < 60 ? seconds + " с" : seconds / 60 + " мин " + seconds % 60 + " с";
         }
     }
 }

@@ -57,7 +57,7 @@ public class CodexSettingsService {
 
     public synchronized CodexSettings setModel(String model) {
         String normalized = normalize(model);
-        requireAllowed(normalized, allowedModels, "model");
+        requireAllowed(normalized, allowedModels, "модели");
         String reasoning = reasoningOptions(normalized).contains(current.reasoningEffort())
                 ? current.reasoningEffort() : CodexSettings.DEFAULT;
         return saveAndApply(new CodexSettings(normalized, reasoning, current.accessMode()));
@@ -71,7 +71,7 @@ public class CodexSettingsService {
 
     public synchronized CodexSettings setAccessMode(String accessMode) {
         String normalized = normalize(accessMode);
-        requireAllowed(normalized, allowedAccessModes, "access mode");
+        requireAllowed(normalized, allowedAccessModes, "режима доступа");
         return saveAndApply(new CodexSettings(current.model(), current.reasoningEffort(), normalized));
     }
 
@@ -215,7 +215,8 @@ public class CodexSettingsService {
 
     private static void requireAllowed(String value, List<String> allowed, String label) {
         if (!allowed.contains(value)) {
-            throw new IllegalArgumentException("Unsupported " + label + ": " + value + ". Allowed: " + String.join(", ", allowed));
+            throw new IllegalArgumentException("Недопустимое значение для " + label + ": " + value
+                    + ". Доступно: " + String.join(", ", allowed));
         }
     }
 

@@ -36,9 +36,53 @@ Version references:
 
 Plain text messages are treated as Codex tasks. Slash commands are reserved for the bot UI.
 
+## Telegram Interface
+
+Run `/start` after upgrading to remove the old reply keyboard and open the inline
+control panel. `/menu` (also `/settings`) opens the current settings. Bot controls
+and command descriptions are in Russian; CLI diagnostics retain their original
+language. `/help` explains conversation context and cancellation.
+
+Model, reasoning, and access choices use inline buttons with a selected-value
+indicator and pagination. Outdated choice menus are rejected instead of applying
+an option to another model. Explicit commands such as `/model gpt-6.1-sol` still
+work. Commands addressed to this bot with `@username` are recognized; unknown slash
+commands are handled locally and never become Codex tasks. Attachments are not
+passed to the agent; this version accepts text tasks only.
+
+Each accepted task receives a short ID and a progress message linked to its source
+message. A separate background scheduler updates that same message about every
+five seconds, without blocking Telegram long polling or waiting on tool events.
+It shows elapsed time, generic execution stages, and the settings captured when
+the task was accepted. Editing settings during execution affects subsequent tasks.
+Tool events only supply generic stage labels: their command arguments, output,
+and reasoning text are not copied into progress messages. The cancel button
+targets its own task ID; an old button cannot cancel
+a later task. Live progress cards are not restored after a bot restart, while
+conversation context continues through the persisted session UUID.
+
+Responses reply to the original request when it is still available. Short answers
+support fenced code blocks, inline code, and bold text using escaped Telegram HTML;
+other Markdown is left as text. A formatting rejection falls back to plain text.
+Answers exceeding `TELEGRAM_MESSAGE_MAX_LENGTH` (default 3900 characters, clamped
+to 500–3900) are sent in full as a UTF-8 `.md` attachment. Uploads are assembled in
+memory and do not create another persistent file on the VPS. The upload guard is
+49 MB, below Telegram's current 50 MB document limit.
+
+`CODEX_MAX_OUTPUT_CHARS` limits diagnostic output, not the assistant's final
+response. Progress edits back off according to Telegram's `retry_after` response.
+Result delivery failures are reported on the progress card when Telegram allows
+it; neither the task nor an uncertain delivery is automatically replayed.
+
+See the [Telegram Bot API](https://core.telegram.org/bots/api) for inline keyboards,
+message editing, reply parameters, HTML formatting, and document uploads.
+
 ## Telegram Commands
 
 ```text
+/start
+/menu
+/help
 /ping
 /status
 /cancel
@@ -182,6 +226,7 @@ Usually also useful:
 VPS_USER=agento
 VPS_PORT=22
 VPS_APP_DIR=/home/agento/agento-bot
+TELEGRAM_MESSAGE_MAX_LENGTH=3900
 ```
 
 Optional Codex settings:

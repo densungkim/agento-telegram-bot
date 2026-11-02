@@ -44,7 +44,7 @@ public class ProcessRunner {
 
         try {
             if (hasActiveProcess()) {
-                return new CommandResult(-1, false, "Another process is still running.");
+                return new CommandResult(-1, false, "Предыдущий процесс ещё выполняется.");
             }
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException();
@@ -52,7 +52,7 @@ public class ProcessRunner {
             process = processBuilder.start();
             if (!activeProcess.compareAndSet(null, process)) {
                 process.destroyForcibly();
-                return new CommandResult(-1, false, "Another process is still running.");
+                return new CommandResult(-1, false, "Предыдущий процесс ещё выполняется.");
             }
             Process running = process;
 
@@ -65,7 +65,7 @@ public class ProcessRunner {
                                 try {
                                     stdoutListener.accept(line);
                                 } catch (RuntimeException e) {
-                                    listenerError.set("Failed to process Codex event: " + e.getMessage());
+                                    listenerError.set("Не удалось обработать событие Codex: " + e.getMessage());
                                     cancelActiveProcess();
                                 }
                             }
@@ -102,9 +102,9 @@ public class ProcessRunner {
                 }
             }
             Thread.currentThread().interrupt();
-            return new CommandResult(-1, false, "Command interrupted.");
+            return new CommandResult(-1, false, "Команда прервана.");
         } catch (Exception e) {
-            return new CommandResult(-1, false, "Failed to run command: " + e.getMessage());
+            return new CommandResult(-1, false, "Не удалось выполнить команду: " + e.getMessage());
         } finally {
             synchronized (listenerLock) {
                 acceptingEvents.set(false);
@@ -171,7 +171,7 @@ public class ProcessRunner {
             }
             return null;
         } catch (IOException e) {
-            return "Failed to write process input: " + e.getMessage();
+            return "Не удалось передать запрос процессу: " + e.getMessage();
         }
     }
 
@@ -189,7 +189,7 @@ public class ProcessRunner {
         try {
             return outputFuture.get(5, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            return "Process finished, but output reader did not complete in time.";
+            return "Процесс завершён, но чтение вывода не завершилось вовремя.";
         }
     }
 
@@ -219,11 +219,11 @@ public class ProcessRunner {
             }
 
             if (omittedChars > 0) {
-                return "[captured output truncated, omitted first characters: " + omittedChars + "]\n" + output;
+                return "[диагностика сокращена; пропущено начальных символов: " + omittedChars + "]\n" + output;
             }
             return output.toString();
         } catch (IOException e) {
-            return "Failed to read process output: " + e.getMessage();
+            return "Не удалось прочитать вывод процесса: " + e.getMessage();
         }
     }
 }

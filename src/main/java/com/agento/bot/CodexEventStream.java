@@ -10,12 +10,14 @@ final class CodexEventStream implements Consumer<String> {
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final CodexSessionStore sessions;
     private final String expectedSessionId;
+    private final Consumer<String> progress;
     private volatile boolean started;
     private volatile String error = "";
 
-    CodexEventStream(CodexSessionStore sessions, String expectedSessionId) {
+    CodexEventStream(CodexSessionStore sessions, String expectedSessionId, Consumer<String> progress) {
         this.sessions = sessions;
         this.expectedSessionId = expectedSessionId;
+        this.progress = progress;
     }
 
     @Override
@@ -32,6 +34,7 @@ final class CodexEventStream implements Consumer<String> {
                 }
                 sessions.remember(id);
                 started = true;
+                progress.accept("Сессия готова. Codex обрабатывает запрос.");
             }
             case "error", "turn.failed" -> {
                 String message = event.path("error").path("message").asString("");
@@ -39,8 +42,23 @@ final class CodexEventStream implements Consumer<String> {
                     message = event.path("message").asString("Ошибка Codex");
                 }
                 error = message.substring(0, Math.min(message.length(), 2_000));
+                progress.accept("Codex сообщил об ошибке. Ожидаю завершения.");
             }
-            case "turn.completed" -> error = "";
+            case "turn.completed" -> {
+                error = "";
+                progress.accept("Codex завершил обработку. Получаю ответ.");
+            }
+            case "turn.started" -> progress.accept("Codex анализирует запрос.");
+            case "item.started", "item.updated", "item.completed" -> progress.accept(switch (
+                    event.path("item").path("type").asString("")) {
+                case "command_execution" -> "Работаю с командами на VPS.";
+                case "file_change" -> "Работаю с файлами.";
+                case "mcp_tool_call", "tool_call" -> "Работаю с инструментом.";
+                case "web_search" -> "Ищу информацию.";
+                case "agent_message" -> "Готовлю ответ.";
+                case "plan", "todo_list" -> "Уточняю план выполнения.";
+                default -> "Codex обрабатывает запрос.";
+            });
             default -> {
                 // Other events do not need to be retained for conversation continuity.
             }

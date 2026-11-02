@@ -9,40 +9,36 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 @Service
 public class CodexRunner {
 
     private final BotProperties properties;
     private final ProcessRunner processRunner;
-    private final CodexSettingsService settingsService;
     private final CodexSessionStore sessions;
 
-    public CodexRunner(BotProperties properties, ProcessRunner processRunner, CodexSettingsService settingsService,
-                       CodexSessionStore sessions) {
+    public CodexRunner(BotProperties properties, ProcessRunner processRunner, CodexSessionStore sessions) {
         this.properties = properties;
         this.processRunner = processRunner;
-        this.settingsService = settingsService;
         this.sessions = sessions;
     }
 
-    public String runCodex(String userPrompt) {
-        CodexSettings settings;
+    public String runCodex(String userPrompt, CodexSettings settings, Consumer<String> progress) {
         String sessionId;
         try {
-            settings = settingsService.settingsForRun();
             sessionId = sessions.resumeId();
         } catch (IllegalArgumentException | IllegalStateException e) {
             return e.getMessage();
         }
         File workdir = new File(properties.codex().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
-            return "CODEX_WORKDIR does not exist or is not a directory: " + workdir.getAbsolutePath();
+            return "Рабочий каталог Codex не найден: " + workdir.getAbsolutePath();
         }
 
         Path lastMessageFile = null;
         try {
-            CodexEventStream events = new CodexEventStream(sessions, sessionId);
+            CodexEventStream events = new CodexEventStream(sessions, sessionId, progress);
             lastMessageFile = Files.createTempFile("agento-codex-last-message-", ".txt");
             List<String> command = buildCodexCommand(lastMessageFile, settings, sessionId);
             CommandResult result = processRunner.run(
@@ -57,31 +53,32 @@ public class CodexRunner {
             String lastMessage = readLastMessage(lastMessageFile);
 
             if (result.timedOut()) {
-                return limitOutput("Codex timed out after " + properties.codex().timeoutSeconds() + " seconds.\n\n" + firstNotBlank(lastMessage, result.output()));
+                return "Превышено время ожидания Codex: " + properties.codex().timeoutSeconds()
+                        + " с.\n\n" + responseWithDiagnostics(lastMessage, result.output());
             }
 
             if (!events.error().isBlank()) {
-                return limitOutput("Ошибка Codex: " + events.error() + "\n\n" + firstNotBlank(lastMessage, result.output()));
+                return "Ошибка Codex: " + events.error() + "\n\n" + responseWithDiagnostics(lastMessage, result.output());
             }
 
             if (result.exitCode() == 0 && !events.started()) {
                 return "Codex не подтвердил ID сессии. Результат не будет автоматически повторён.\n\n"
-                        + limitOutput(firstNotBlank(lastMessage, result.output()));
+                        + responseWithDiagnostics(lastMessage, result.output());
             }
 
             if (result.exitCode() == 0 && isNotBlank(lastMessage)) {
-                return limitOutput(lastMessage);
+                return lastMessage;
             }
 
             if (isNotBlank(lastMessage)) {
-                return limitOutput("Codex exit code: " + result.exitCode() + "\n\n"
-                        + cleanOutput(result.output()) + "\n\n" + lastMessage);
+                return "Код завершения Codex: " + result.exitCode() + "\n\n"
+                        + responseWithDiagnostics(lastMessage, result.output());
             }
 
             String resumeHint = sessionId == null ? "" : "\nСессия сохранена. Если она больше недоступна, используйте /new.";
-            return limitOutput("Codex exit code: " + result.exitCode() + resumeHint + "\n\n" + cleanOutput(result.output()));
+            return limitOutput("Код завершения Codex: " + result.exitCode() + resumeHint + "\n\n" + cleanOutput(result.output()));
         } catch (IOException e) {
-            return "Failed to prepare Codex output file: " + e.getMessage();
+            return "Не удалось прочитать или подготовить ответ Codex: " + e.getMessage();
         } finally {
             deleteIfExists(lastMessageFile);
         }
@@ -158,7 +155,7 @@ public class CodexRunner {
 
     private String cleanOutput(String output) {
         if (output == null || output.isBlank()) {
-            return "Codex did not return any text output.";
+            return "Codex не вернул текст ответа.";
         }
         return output.strip();
     }
@@ -167,11 +164,12 @@ public class CodexRunner {
         if (lastMessageFile == null || !Files.isRegularFile(lastMessageFile)) {
             return "";
         }
-        return Files.readString(lastMessageFile).strip();
+        return Files.readString(lastMessageFile);
     }
 
-    private String firstNotBlank(String first, String second) {
-        return isNotBlank(first) ? first : cleanOutput(second);
+    private String responseWithDiagnostics(String response, String diagnostics) {
+        String details = limitOutput(cleanOutput(diagnostics));
+        return isNotBlank(response) ? response + "\n\nДиагностика:\n" + details : details;
     }
 
     private void deleteIfExists(Path path) {
@@ -192,7 +190,7 @@ public class CodexRunner {
         }
         int omitted = output.length() - maxChars;
         return output.substring(0, maxChars).stripTrailing()
-                + "\n\n... output truncated, omitted characters: " + omitted;
+                + "\n\n… диагностика сокращена; пропущено символов: " + omitted;
     }
 
     private boolean isNotBlank(String value) {
