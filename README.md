@@ -3,6 +3,28 @@
 Telegram bot for running the Claude Code CLI on a VPS as the `agento` user.
 The project is built as a regular Spring Boot jar and deployed without Docker.
 
+## Branch `oracle-free`
+
+This branch deploys the bot to the **oracle-free** server (Ubuntu 24.04, aarch64) with a
+separate Telegram bot. It was created once from `master` (contabo) and is an independent
+branch: the two branches are **never merged** in either direction. A change wanted on both
+servers is made in each branch (by hand or with `git cherry-pick`).
+
+- Deploy: Actions → "Build and deploy Agento Bot (oracle-free)" → Run workflow on branch
+  `oracle-free`. The first step refuses any other branch; `master`'s workflow likewise
+  refuses to run outside `master`, so neither server can get the other branch's code.
+- The workflow reads only secrets with the `_ORACLE_FREE` suffix and maps them to the usual
+  names inside the job (`VPS_HOST_ORACLE_FREE` → `VPS_HOST`, and so on). Required:
+  `VPS_HOST_ORACLE_FREE`, `VPS_SSH_KEY_ORACLE_FREE`, `TELEGRAM_BOT_TOKEN_ORACLE_FREE`,
+  `TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE`, `CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE`. Every optional
+  secret listed below also exists with the suffix (e.g. `CLAUDE_ALLOWED_MODELS_ORACLE_FREE`).
+- Server: user `agento` (member of `docker`), Java 25 Temurin via sdkman, Claude Code in
+  `~/.local/bin/claude`, `bubblewrap` + `socat` with the AppArmor profile for `bwrap`.
+- Progress of this setup: `PLAN-oracle-free.md` (exists only on this branch).
+
+The rest of this README describes the bot itself and applies to both servers; secret names
+below are shown without the suffix.
+
 ## Runtime and Development Requirements
 
 - Java 25 LTS, with current security updates, for development and the VPS runtime;
