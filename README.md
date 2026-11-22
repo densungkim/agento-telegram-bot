@@ -95,7 +95,11 @@ confirms the session, `assistant` tool calls drive the progress stage, and the
 permission denials. Stderr is kept as diagnostics. `ANTHROPIC_API_KEY` and
 `CLAUDE_CODE_EFFORT_LEVEL` are removed from the child environment so they cannot
 override the subscription token or the chosen effort; `TELEGRAM_BOT_TOKEN` is removed
-so the commands Claude runs cannot read it. There is no turn or budget
+so the commands Claude runs cannot read it; `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is
+removed because it forces the permission mode to `default`. `system/init` reports the
+resolved model id and the permission mode Claude Code really started with; the
+progress card and `/status` show them (`**Запущено:** claude-opus-5-5 · bypassPermissions`)
+and flag a downgraded mode. There is no turn or budget
 limit; `CLAUDE_TIMEOUT_SECONDS` (default 900) stops a task.
 
 ## Conversation Context
@@ -200,8 +204,9 @@ CLAUDE_SYSTEM_PROMPT=...
 CLAUDE_CONFIG_DIR=           # only if Claude Code should not use ~/.claude
 ```
 
-The deployment also sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (credentials hidden from
-the commands Claude runs) and `DISABLE_AUTOUPDATER=1`. Never set `ANTHROPIC_API_KEY`
+The deployment also sets `DISABLE_AUTOUPDATER=1`. Do not set
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`: Claude Code then forces the permission mode to
+`default`, and full access silently stops working. Never set `ANTHROPIC_API_KEY`
 for the bot: in `-p` mode it always wins over the subscription token.
 
 ## Local Run

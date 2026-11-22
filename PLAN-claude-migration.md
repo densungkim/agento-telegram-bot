@@ -229,6 +229,12 @@ _Non-obvious decisions and deviations, newest last._
   needs `bubblewrap` + `socat` on the server; `full-access` → `--permission-mode bypassPermissions`.
 - D2: auth with `claude setup-token` (1-year token, Max subscription) → GitHub secret `CLAUDE_CODE_OAUTH_TOKEN` → `app.env`;
   `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so Claude's commands don't see it; `ANTHROPIC_API_KEY` must not be set for the bot.
+  **Revised 2026-11-22:** `SCRUB=1` makes Claude Code print "Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+  is set" and also blocked the Docker socket, so full access answered "needs approval". Verified with two diagnostic runs
+  on the server (with it: `permissionMode=default`, docker failed; without it: `bypassPermissions`, docker worked). The
+  variable is removed from the workflow and unset for the `claude` process; the OAuth token is now visible to Claude's
+  commands (in full access they could read `app.env` anyway). `--allow-dangerously-skip-permissions` is not needed.
+  The progress card and `/status` now show the model id and permission mode from `system/init`, flagging a downgrade.
 - D3: `CLAUDE_*` env vars, `Claude*` classes.
 - D4: model aliases (`default`, `opus`, `sonnet`, `haiku`, `fable`; narrowed by env) + one effort list
   (`default`, `low`, `medium`, `high`, `xhigh`, `max`) for all models; the JSON catalog is removed.
