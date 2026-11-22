@@ -37,6 +37,9 @@ Plain text messages are treated as Claude tasks. Slash commands are reserved for
 `/start` opens the inline control panel. `/menu` (also `/settings`) opens the current
 settings. Bot controls and command descriptions are in Russian; CLI diagnostics retain
 their original language. `/help` explains conversation context and cancellation.
+After every start (deploy or restart) the bot sends "✅ Приложение успешно запущено"
+with the start time (server time zone, `dd.MM.yyyy HH:mm:ss`) to the allowed chat.
+Model buttons show full model ids as readable names (`claude-opus-5-5` → "Opus 5.5").
 
 Model, effort, and access choices use inline buttons with a selected-value indicator
 and pagination. Outdated choice menus are rejected. Explicit commands such as
@@ -138,7 +141,7 @@ subprocesses; it cannot undo commands that already changed the VPS.
 ## Models and Effort
 
 The menus offer the values from `CLAUDE_ALLOWED_MODELS` (default
-`default,opus,sonnet,haiku,fable`) and `CLAUDE_ALLOWED_EFFORTS` (default
+`default,claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5,claude-fable-5-2`) and `CLAUDE_ALLOWED_EFFORTS` (default
 `default,low,medium,high,xhigh,max`). Models may be aliases or full model names
 accepted by `claude --model`. `default` means the flag is not passed, so Claude Code's
 own configuration applies. Effort is independent of the model; when a model does not
@@ -195,7 +198,7 @@ CLAUDE_MAX_OUTPUT_CHARS=30000
 CLAUDE_MODEL=default
 CLAUDE_EFFORT=default
 CLAUDE_ACCESS_MODE=full-access
-CLAUDE_ALLOWED_MODELS=default,opus,sonnet,haiku,fable
+CLAUDE_ALLOWED_MODELS=default,claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5,claude-fable-5-2
 CLAUDE_ALLOWED_EFFORTS=default,low,medium,high,xhigh,max
 CLAUDE_ALLOWED_ACCESS_MODES=read-only,workspace,full-access
 CLAUDE_SETTINGS_FILE=./agento-settings.properties
