@@ -26,6 +26,12 @@ public class ClaudeRunner {
     static final Set<String> UNSET_ENVIRONMENT = Set.of(
             "ANTHROPIC_API_KEY", "CLAUDE_CODE_EFFORT_LEVEL", "TELEGRAM_BOT_TOKEN");
 
+    /**
+     * Auto memory is shared by all sessions of a project; the bot's {@code /new} must start from a clean slate, so
+     * Claude Code neither writes nor loads it.
+     */
+    static final Map<String, String> ENVIRONMENT = Map.of("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+
     private final BotProperties properties;
     private final ProcessRunner processRunner;
     private final ClaudeSessionStore sessions;
@@ -54,7 +60,7 @@ public class ClaudeRunner {
                 workdir,
                 Duration.ofSeconds(properties.claude().timeoutSeconds()),
                 userPrompt,
-                Map.of(),
+                ENVIRONMENT,
                 UNSET_ENVIRONMENT,
                 events
         );

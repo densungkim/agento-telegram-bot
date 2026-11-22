@@ -11,21 +11,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
  * Keeps the id of the single Claude Code session the bot continues. Claude Code stores the conversation itself in
- * {@code <config dir>/projects/<encoded cwd>/<id>.jsonl}; this store only remembers the id.
+ * {@code <config dir>/projects/<encoded cwd>/<id>.jsonl}; this store only remembers the id. The bot has one user:
+ * a session replaced by {@code /new} is never needed again, so everything Claude Code keeps for it is deleted, and
+ * ids whose deletion failed are retried on the next {@code /new} and at startup.
  */
 @Component
 public class ClaudeSessionStore {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeSessionStore.class);
     private static final String OWNER = "agento-telegram-bot";
+    /** Per-session directories {@code <config dir>/<name>/<id>...} (Claude Code docs, ~/.claude layout). */
+    private static final List<String> SESSION_DIRS = List.of(
+            "file-history", "session-env", "tasks", "uploads", "dev-mods", "image-cache", "debug");
 
     private final Path file;
     private final String workdir;
@@ -33,6 +41,8 @@ public class ClaudeSessionStore {
     private String sessionId;
     /** True once Claude Code confirmed the session ({@code system/init}); until then the id is only reserved. */
     private boolean confirmed;
+    /** Old session ids whose files could not be deleted yet. */
+    private final Set<String> pendingDeletion = new LinkedHashSet<>();
 
     public ClaudeSessionStore(BotProperties properties) {
         file = Path.of(properties.claude().sessionFile()).toAbsolutePath().normalize();
@@ -63,6 +73,21 @@ public class ClaudeSessionStore {
             throw new IllegalStateException("Invalid confirmed value in " + file);
         }
         confirmed = sessionId != null && Boolean.parseBoolean(savedConfirmed);
+        Arrays.stream(saved.getProperty("pendingDeletion", "").split(","))
+                .map(String::strip)
+                .filter(item -> !item.isEmpty())
+                .map(ClaudeSessionStore::checkedId)
+                .forEach(pendingDeletion::add);
+        if (!pendingDeletion.isEmpty()) {
+            try {
+                List<String> failed = deletePending();
+                if (!failed.isEmpty()) {
+                    log.warn("Old Claude Code session files are still not deleted: {}", failed);
+                }
+            } catch (IllegalStateException e) {
+                log.warn("Could not retry deleting old Claude Code sessions: {}", e.getMessage());
+            }
+        }
     }
 
     /**
@@ -94,65 +119,118 @@ public class ClaudeSessionStore {
     }
 
     /**
-     * Forgets the current session (the next message starts a new one) and deletes its transcript.
+     * {@code /new}: forgets the current session (the next message starts a new one) and deletes everything Claude
+     * Code keeps for it and for earlier sessions whose deletion failed, including the project's auto memory.
      *
      * @return text for the user
      */
     public synchronized String reset() {
-        String previous = sessionId;
-        save(null, false);
-        if (previous == null) {
-            return "Контекст уже пуст. Следующее сообщение начнёт новую сессию. Настройки сохранены.";
+        if (sessionId != null) {
+            pendingDeletion.add(sessionId);
         }
-        List<String> failed = deleteTranscript(previous);
+        save(null, false);
+        List<String> failed = deletePending();
         if (!failed.isEmpty()) {
             return "Контекст сброшен: следующее сообщение начнёт новую сессию. Настройки сохранены."
-                    + "\nФайлы прежней сессии удалить не удалось:\n" + String.join("\n", failed);
+                    + "\nЧасть файлов прежних сессий удалить не удалось; бот повторит удаление при следующем /new"
+                    + " и при запуске:\n" + String.join("\n", failed);
         }
-        return "Предыдущий контекст удалён. Следующее сообщение начнёт новую сессию. Настройки сохранены.";
+        return "Предыдущая сессия полностью удалена. Следующее сообщение начнёт новую сессию. Настройки сохранены.";
     }
 
     public synchronized String description() {
-        if (sessionId == null) {
-            return "новая; будет создана следующим сообщением";
-        }
-        return sessionId + (confirmed ? "" : " (ещё не подтверждена Claude Code)");
+        String current = sessionId == null
+                ? "новая; будет создана следующим сообщением"
+                : sessionId + (confirmed ? "" : " (ещё не подтверждена Claude Code)");
+        return current + (pendingDeletion.isEmpty() ? ""
+                : "\nНе удалены файлы прежних сессий: " + pendingDeletion.size() + " (повтор при /new)");
     }
 
     private boolean transcriptExists(String id) {
-        return transcriptPaths(id).stream().anyMatch(Files::isRegularFile);
-    }
-
-    /** {@code <id>.jsonl} and the {@code <id>/} directory (subagent transcripts) in every project directory. */
-    private List<Path> transcriptPaths(String id) {
         Path projects = configDir.resolve("projects");
         if (!Files.isDirectory(projects)) {
-            return List.of();
+            return false;
         }
-        String checked = checkedId(id);
         try (Stream<Path> dirs = Files.list(projects)) {
-            return dirs.filter(Files::isDirectory)
-                    .flatMap(dir -> Stream.of(dir.resolve(checked + ".jsonl"), dir.resolve(checked)))
-                    .filter(Files::exists)
-                    .toList();
+            return dirs.anyMatch(dir -> Files.isRegularFile(dir.resolve(checkedId(id) + ".jsonl")));
         } catch (IOException e) {
             log.warn("Could not list Claude Code projects in {}: {}", projects, e.getMessage());
-            return List.of();
+            return false;
         }
     }
 
-    private List<String> deleteTranscript(String id) {
+    /** Deletes the files of every pending id; ids without leftovers leave the pending list. */
+    private List<String> deletePending() {
         List<String> failed = new ArrayList<>();
-        for (Path path : transcriptPaths(id)) {
-            try (Stream<Path> tree = Files.walk(path)) {
+        for (String id : List.copyOf(pendingDeletion)) {
+            List<String> errors = deleteSessionFiles(id);
+            if (errors.isEmpty()) {
+                pendingDeletion.remove(id);
+            }
+            failed.addAll(errors);
+        }
+        save(sessionId, confirmed);
+        return failed;
+    }
+
+    /**
+     * Deletes everything keyed by the session id: transcripts and their older copies, the {@code <id>/} directory
+     * (subagents, tool results), the per-session directories, and the auto memory of the projects it belonged to.
+     */
+    private List<String> deleteSessionFiles(String id) {
+        String checked = checkedId(id);
+        List<Path> targets = new ArrayList<>();
+        Set<Path> projectDirs = new LinkedHashSet<>();
+        projectDirs.add(configDir.resolve("projects").resolve(encodedProjectName(workdir)));
+        List<String> errors = new ArrayList<>();
+        try {
+            for (Path project : list(configDir.resolve("projects"))) {
+                for (Path entry : list(project)) {
+                    String name = entry.getFileName().toString();
+                    if (name.equals(checked) || name.equals(checked + ".jsonl")
+                            || name.startsWith(checked + ".orphaned-") || name.startsWith(checked + ".jsonl.superseded-")) {
+                        targets.add(entry);
+                        projectDirs.add(project);
+                    }
+                }
+            }
+            for (String dir : SESSION_DIRS) {
+                for (Path entry : list(configDir.resolve(dir))) {
+                    if (entry.getFileName().toString().startsWith(checked)) {
+                        targets.add(entry);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            errors.add(configDir + ": " + e.getMessage());
+        }
+        // Auto memory is per project, not per session; the bot runs with it disabled, so nothing new is lost.
+        projectDirs.stream().map(project -> project.resolve("memory")).filter(Files::exists).forEach(targets::add);
+
+        for (Path target : targets) {
+            try (Stream<Path> tree = Files.walk(target)) {
                 for (Path item : tree.sorted(Comparator.reverseOrder()).toList()) {
                     Files.deleteIfExists(item);
                 }
             } catch (IOException e) {
-                failed.add(path + ": " + e.getMessage());
+                errors.add(target + ": " + e.getMessage());
             }
         }
-        return failed;
+        return errors;
+    }
+
+    private static List<Path> list(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return List.of();
+        }
+        try (Stream<Path> entries = Files.list(dir)) {
+            return entries.toList();
+        }
+    }
+
+    /** Claude Code's project directory name: the working directory with non-alphanumerics replaced by "-". */
+    private static String encodedProjectName(String path) {
+        return path.replaceAll("[^A-Za-z0-9]", "-");
     }
 
     private void save(String id, boolean isConfirmed) {
@@ -162,6 +240,7 @@ public class ClaudeSessionStore {
         saved.setProperty("configDir", configDir.toString());
         saved.setProperty("sessionId", id == null ? "" : id);
         saved.setProperty("confirmed", Boolean.toString(isConfirmed));
+        saved.setProperty("pendingDeletion", String.join(",", pendingDeletion));
         Path staged = null;
         try {
             Files.createDirectories(file.getParent());
