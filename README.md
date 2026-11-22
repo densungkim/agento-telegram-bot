@@ -41,6 +41,16 @@ After every start (deploy or restart) the bot sends "✅ Приложение у
 with the start time (server time zone, `dd.MM.yyyy HH:mm:ss`) to the allowed chat.
 Model buttons show full model ids as readable names (`claude-opus-5-5` → "Opus 5.5").
 
+### Sending files
+Claude sends files by putting them into `/home/agento/agento-outbox` (fixed path; the
+system prompt tells it so, including the 49 MB limit and to archive directories). The
+bot empties the folder before every Claude task. After a successful answer it sends
+each regular file as a separate document replying to the task message (at most 10,
+each up to 49 MB, uploads with a 10-minute timeout), then deletes everything; files
+it could not send are deleted too and listed in one message. After a cancellation,
+a timeout, or a Claude error the folder is emptied without sending. In `read-only`
+mode Claude cannot create files, so nothing is sent.
+
 Model, effort, and access choices use inline buttons with a selected-value indicator
 and pagination. Outdated choice menus are rejected. Explicit commands such as
 `/model sonnet` still work. Commands addressed to this bot with `@username` are
