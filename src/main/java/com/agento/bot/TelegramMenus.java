@@ -8,6 +8,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.agento.bot.TelegramClient.Button;
 
@@ -15,6 +17,7 @@ import static com.agento.bot.TelegramClient.Button;
 public class TelegramMenus {
 
     private static final int PAGE_SIZE = 8;
+    private static final Pattern MODEL_ID = Pattern.compile("claude-([a-z]+)-(\\d+)-(\\d+)(\\[[a-z0-9]+\\])?");
     private final ClaudeSettingsService settings;
 
     public TelegramMenus(ClaudeSettingsService settings) {
@@ -91,7 +94,9 @@ public class TelegramMenus {
     }
 
     public String summary(ClaudeSettings value) {
-        return "**Модель:** " + (value.usesDefaultModel() ? "как в Claude Code" : value.model())
+        return "**Модель:** " + (value.usesDefaultModel() ? "как в Claude Code"
+                : modelLabel(value.model()).equals(value.model()) ? value.model()
+                : modelLabel(value.model()) + " (" + value.model() + ")")
                 + "\n**Effort:** " + settings.effortDescription(value)
                 + "\n**Доступ:** " + label("mode", value.accessMode());
     }
@@ -131,8 +136,22 @@ public class TelegramMenus {
                 default -> value;
             };
         }
-        return TelegramTextFormatter.clip(value.equals(ClaudeSettings.DEFAULT)
-                ? (kind.equals("model") ? "Как в CLI" : "По умолчанию") : value, 40);
+        if (value.equals(ClaudeSettings.DEFAULT)) {
+            return kind.equals("model") ? "Как в CLI" : "По умолчанию";
+        }
+        return TelegramTextFormatter.clip(kind.equals("model") ? modelLabel(value) : value, 40);
+    }
+
+    /** {@code claude-opus-5-5} → {@code Opus 5.5}, {@code claude-opus-5-5[1m]} → {@code Opus 5.5 [1m]}; aliases stay. */
+    static String modelLabel(String model) {
+        Matcher matcher = MODEL_ID.matcher(model);
+        if (!matcher.matches()) {
+            return model;
+        }
+        String family = matcher.group(1);
+        return Character.toUpperCase(family.charAt(0)) + family.substring(1)
+                + " " + matcher.group(2) + "." + matcher.group(3)
+                + (matcher.group(4) == null ? "" : " " + matcher.group(4));
     }
 
     private String fingerprint(String value) {

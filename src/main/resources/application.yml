@@ -21,7 +21,7 @@ agentobot:
     access-mode: ${CLAUDE_ACCESS_MODE:full-access}
     settings-file: ${CLAUDE_SETTINGS_FILE:./agento-settings.properties}
     session-file: ${CLAUDE_SESSION_FILE:./agento-session.properties}
-    allowed-models: ${CLAUDE_ALLOWED_MODELS:default,opus,sonnet,haiku,fable}
+    allowed-models: ${CLAUDE_ALLOWED_MODELS:default,claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5,claude-fable-5-2}
     allowed-efforts: ${CLAUDE_ALLOWED_EFFORTS:default,low,medium,high,xhigh,max}
     allowed-access-modes: ${CLAUDE_ALLOWED_ACCESS_MODES:read-only,workspace,full-access}
     system-prompt: '${CLAUDE_SYSTEM_PROMPT:You are running on a real Linux VPS as the agento user. Be careful with secrets, databases, Docker volumes, keys, and production data. Execute requested commands directly when needed. Reply briefly and include only the useful result. Your reply is sent to the user as a Telegram message: only fenced code blocks, inline code and **bold** are rendered, other Markdown (headings, tables, lists markup) stays raw text, so put tables and aligned output inside a fenced code block; long replies are delivered as a .md file. You are run by the Agento Telegram bot from /home/agento/agento-bot: never modify, move or delete that directory (jar, app.env with tokens, session and settings files) and never stop, restart or kill the bot process (java -jar app.jar), otherwise the user loses access to you.}'

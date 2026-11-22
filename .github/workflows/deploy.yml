@@ -96,7 +96,7 @@ jobs:
           : "${CLAUDE_ACCESS_MODE:=full-access}"
           : "${CLAUDE_SETTINGS_FILE:=./agento-settings.properties}"
           : "${CLAUDE_SESSION_FILE:=./agento-session.properties}"
-          : "${CLAUDE_ALLOWED_MODELS:=default,opus,sonnet,haiku,fable}"
+          : "${CLAUDE_ALLOWED_MODELS:=default,claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5,claude-fable-5-2}"
           : "${CLAUDE_ALLOWED_EFFORTS:=default,low,medium,high,xhigh,max}"
           : "${CLAUDE_ALLOWED_ACCESS_MODES:=read-only,workspace,full-access}"
 
