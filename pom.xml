@@ -15,7 +15,7 @@
     <artifactId>agento-telegram-bot</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>agento-telegram-bot</name>
-    <description>Telegram bot that runs Codex CLI tasks on a VPS</description>
+    <description>Telegram bot that runs Claude Code CLI tasks on a VPS</description>
 
     <properties>
         <java.version>25</java.version>
