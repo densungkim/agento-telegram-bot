@@ -34,6 +34,10 @@ Plain text messages are treated as Claude tasks. Slash commands are reserved for
 
 ## Telegram Interface
 
+The bot registers no command list, so Telegram shows no command menu button. Instead the
+startup message and `/start` attach a reply keyboard with one button "🏠 Menu" (opened and
+hidden with the four-squares icon in the input field); pressing it opens the menu and is
+never sent to Claude. Typed commands keep working.
 `/start` opens the inline control panel. `/menu` (also `/settings`) opens the current
 settings. Bot controls and command descriptions are in Russian; CLI diagnostics retain
 their original language. `/help` explains conversation context and cancellation.
