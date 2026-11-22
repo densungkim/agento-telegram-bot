@@ -118,10 +118,16 @@ Claude Code deletes old sessions (`cleanupPeriodDays`, 30 days by default). Resu
 deleted session fails with `No conversation found`; the bot shows the error with a
 hint to use `/new`.
 
+The bot has a single user, so a session replaced by `/new` is never needed again.
 `/new` first saves an empty session id, so the next message always starts a new
-conversation, then deletes the old `<UUID>.jsonl` and `<UUID>/` (subagent transcripts)
-from the Claude Code projects directory. A deletion error is reported but does not
-undo the reset. Model, effort, and access settings are preserved. `/new` is refused
+conversation, then deletes everything Claude Code keeps for the old session:
+`projects/*/<UUID>.jsonl` (and its orphaned / superseded copies), `projects/*/<UUID>/`
+(subagents, tool results), `file-history`, `session-env`, `tasks`, `uploads`, `dev-mods`,
+`image-cache`, and `debug` entries for that UUID, and the project's auto memory
+(`projects/<encoded workdir>/memory/`). Tasks run with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`,
+so a new session never sees notes from an old one. Ids whose files could not be
+deleted are kept as `pendingDeletion` in the state file and retried on the next `/new`
+and at bot startup; `/status` shows how many are left. Model, effort, and access settings are preserved. `/new` is refused
 while a task or cancellation is in progress. `/cancel` stops the CLI process and its
 subprocesses; it cannot undo commands that already changed the VPS.
 
