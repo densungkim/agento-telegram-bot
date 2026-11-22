@@ -8,9 +8,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -37,6 +41,7 @@ public class TelegramPollingService {
     private final ClaudeSettingsService settings;
     private final ClaudeSessionStore sessions;
     private final TelegramMenus menus;
+    private final Outbox outbox;
     private final long startedAtEpochSeconds = Instant.now().getEpochSecond();
     private final AtomicBoolean polling = new AtomicBoolean();
     private final AtomicBoolean telegramReady = new AtomicBoolean();
@@ -48,7 +53,7 @@ public class TelegramPollingService {
 
     public TelegramPollingService(TelegramClient telegram, ClaudeRunner claude, ProcessRunner processes,
                                   BotProperties properties, ClaudeSettingsService settings,
-                                  ClaudeSessionStore sessions, TelegramMenus menus) {
+                                  ClaudeSessionStore sessions, TelegramMenus menus, Outbox outbox) {
         if (properties.telegram().allowedChatId() == 0) {
             throw new IllegalStateException("TELEGRAM_ALLOWED_CHAT_ID is required and cannot be 0");
         }
@@ -59,6 +64,7 @@ public class TelegramPollingService {
         this.settings = settings;
         this.sessions = sessions;
         this.menus = menus;
+        this.outbox = outbox;
     }
 
     @PostConstruct
@@ -285,13 +291,16 @@ public class TelegramPollingService {
             show(chatId, null, replyTo, menus.main(e.getMessage()));
             return;
         }
-        startTask(chatId, replyTo, prompt, snapshot, "Запускаю Claude Code.",
-                updates -> claude.run(prompt, snapshot, updates));
+        startTask(chatId, replyTo, prompt, snapshot, "Запускаю Claude Code.", updates -> {
+            // Only files placed during this task may be sent.
+            outbox.prepare();
+            return claude.run(prompt, snapshot, updates);
+        });
     }
 
     private void startReset(long chatId, int replyTo) {
         startTask(chatId, replyTo, "Сброс контекста /new", null, "Удаляю предыдущую сессию.",
-                updates -> claude.newSession());
+                updates -> new ClaudeRunner.Outcome(claude.newSession(), true));
     }
 
     private void startTask(long chatId, int replyTo, String prompt, ClaudeSettings snapshot,
@@ -317,10 +326,11 @@ public class TelegramPollingService {
     private void runTask(ActiveTask active, Task task) {
         active.worker = Thread.currentThread();
         String result = null;
+        boolean success = false;
         String terminal = "Обработка завершена.";
         try {
             if (!active.cancelRequested) {
-                result = task.run(new TaskProgress() {
+                ClaudeRunner.Outcome outcome = task.run(new TaskProgress() {
                     @Override
                     public void phase(String text) {
                         active.phase = text;
@@ -332,6 +342,8 @@ public class TelegramPollingService {
                         lastRuntime = active.runtime;
                     }
                 });
+                result = outcome.text();
+                success = outcome.success();
             }
         } catch (Exception e) {
             log.warn("Bot task failed: {}", e.getMessage());
@@ -356,6 +368,13 @@ public class TelegramPollingService {
                                 + "\nЗадача не запускалась повторно.";
                     }
                 }
+                if (active.snapshot != null) {
+                    // Claude task: files are sent only after a normal answer and deleted in every outcome.
+                    if (success && !active.cancelRequested) {
+                        sendOutbox(active);
+                    }
+                    outbox.clear();
+                }
                 finishProgress(active, terminal + "\nСессия: " + sessions.description());
             } finally {
                 active.worker = null;
@@ -363,6 +382,43 @@ public class TelegramPollingService {
                 if (interrupted) {
                     Thread.currentThread().interrupt();
                 }
+            }
+        }
+    }
+
+    /** Sends the outbox files one by one as replies to the task message; problems are reported in one message. */
+    private void sendOutbox(ActiveTask active) {
+        List<Path> entries = outbox.entries();
+        if (entries.isEmpty()) {
+            return;
+        }
+        finishProgress(active, "Отправляю файлы: " + entries.size() + ".");
+        List<String> problems = new ArrayList<>();
+        int sent = 0;
+        for (Path entry : entries) {
+            String name = entry.getFileName().toString();
+            try {
+                if (!Files.isRegularFile(entry)) {
+                    problems.add(name + " — не файл (папку нужно упаковать в архив)");
+                } else if (sent >= Outbox.MAX_FILES) {
+                    problems.add(name + " — превышен лимит " + Outbox.MAX_FILES + " файлов за ответ");
+                } else if (Files.size(entry) > Outbox.MAX_FILE_BYTES) {
+                    problems.add(name + " — " + Files.size(entry) / (1024 * 1024) + " МБ, лимит Telegram 49 МБ");
+                } else {
+                    telegram.sendFile(active.chatId, entry, active.replyTo);
+                    sent++;
+                }
+            } catch (IOException | RuntimeException e) {
+                log.warn("Could not send outbox file {}: {}", name, e.getMessage());
+                problems.add(name + " — " + TelegramTextFormatter.clip(String.valueOf(e.getMessage()), 120));
+            }
+        }
+        if (!problems.isEmpty()) {
+            try {
+                telegram.sendMessage(active.chatId,
+                        "Не отправлены файлы (удалены с сервера):\n" + String.join("\n", problems));
+            } catch (RuntimeException e) {
+                log.warn("Could not report outbox problems: {}", e.getMessage());
             }
         }
     }
@@ -538,7 +594,7 @@ public class TelegramPollingService {
 
     @FunctionalInterface
     private interface Task {
-        String run(TaskProgress progress);
+        ClaudeRunner.Outcome run(TaskProgress progress);
     }
 
     private static final class ActiveTask {

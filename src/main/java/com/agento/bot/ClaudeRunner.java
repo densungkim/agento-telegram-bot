@@ -42,16 +42,16 @@ public class ClaudeRunner {
         this.sessions = sessions;
     }
 
-    public String run(String userPrompt, ClaudeSettings settings, TaskProgress progress) {
+    public Outcome run(String userPrompt, ClaudeSettings settings, TaskProgress progress) {
         File workdir = new File(properties.claude().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
-            return "Рабочий каталог Claude Code не найден: " + workdir.getAbsolutePath();
+            return Outcome.failed("Рабочий каталог Claude Code не найден: " + workdir.getAbsolutePath());
         }
         ClaudeSessionStore.Session session;
         try {
             session = sessions.sessionForRun();
         } catch (IllegalArgumentException | IllegalStateException e) {
-            return e.getMessage();
+            return Outcome.failed(e.getMessage());
         }
 
         ClaudeEventStream events = new ClaudeEventStream(sessions, session.id(), progress);
@@ -67,29 +67,29 @@ public class ClaudeRunner {
         ClaudeEventStream.Result result = events.result();
 
         if (run.timedOut()) {
-            return limitOutput("Превышено время ожидания Claude Code: " + properties.claude().timeoutSeconds()
-                    + " с.\n\n" + cleanOutput(run.output()));
+            return Outcome.failed(limitOutput("Превышено время ожидания Claude Code: " + properties.claude().timeoutSeconds()
+                    + " с.\n\n" + cleanOutput(run.output())));
         }
         if (result == null) {
             String resumeHint = session.resume() ? "\nСессия сохранена. Если она больше недоступна, используйте /new." : "";
-            return limitOutput("Claude Code завершился без итогового результата. Код завершения: " + run.exitCode()
-                    + resumeHint + "\n\n" + cleanOutput(run.output()));
+            return Outcome.failed(limitOutput("Claude Code завершился без итогового результата. Код завершения: " + run.exitCode()
+                    + resumeHint + "\n\n" + cleanOutput(run.output())));
         }
         if (result.error()) {
             String details = result.errors().isEmpty() ? result.text() : String.join("\n", result.errors());
             String missingHint = details.contains("No conversation found")
                     ? "\n\nСессия больше недоступна (Claude Code удаляет старые сессии, по умолчанию через 30 дней)."
                     + " Используйте /new." : "";
-            return limitOutput("Ошибка Claude Code (" + result.subtype() + "): "
+            return Outcome.failed(limitOutput("Ошибка Claude Code (" + result.subtype() + "): "
                     + (details.isBlank() ? "без описания" : details.strip()) + missingHint
-                    + withDiagnostics(run.output()));
+                    + withDiagnostics(run.output())));
         }
         if (!events.started()) {
-            return "Claude Code не подтвердил ID сессии. Результат не будет автоматически повторён.\n\n"
-                    + (result.text().isBlank() ? "" : result.text()) + withDiagnostics(run.output());
+            return Outcome.failed("Claude Code не подтвердил ID сессии. Результат не будет автоматически повторён.\n\n"
+                    + (result.text().isBlank() ? "" : result.text()) + withDiagnostics(run.output()));
         }
         String answer = result.text().isBlank() ? "Claude Code не вернул текст ответа." : result.text();
-        return answer + deniedNote(result.deniedTools(), settings);
+        return new Outcome(answer + deniedNote(result.deniedTools(), settings), true);
     }
 
     /** {@code /new}: Claude Code has no per-session delete command, so the store forgets the id and deletes the file. */
@@ -162,5 +162,12 @@ public class ClaudeRunner {
         int omitted = output.length() - maxChars;
         return output.substring(0, maxChars).stripTrailing()
                 + "\n\n… диагностика сокращена; пропущено символов: " + omitted;
+    }
+
+    /** Text for the user; {@code success} only for a normal answer (files in the outbox are sent only then). */
+    public record Outcome(String text, boolean success) {
+        static Outcome failed(String text) {
+            return new Outcome(text, false);
+        }
     }
 }
