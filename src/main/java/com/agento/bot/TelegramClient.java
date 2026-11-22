@@ -68,12 +68,6 @@ public class TelegramClient {
         ), MediaType.APPLICATION_JSON);
     }
 
-    public void setCommands(List<BotCommand> commands) {
-        call("setMyCommands", Map.of("commands", commands.stream()
-                .map(command -> Map.of("command", command.command(), "description", command.description())).toList()),
-                MediaType.APPLICATION_JSON);
-    }
-
     public void answerCallback(String queryId, String text) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -126,12 +120,25 @@ public class TelegramClient {
         }
     }
 
-    public void removeLegacyKeyboard(long chatId) {
-        call("sendMessage", Map.of(
-                "chat_id", chatId,
-                "text", "Управление ботом — кнопками под сообщениями или командами.",
-                "reply_markup", Map.of("remove_keyboard", true)
-        ), MediaType.APPLICATION_JSON);
+    /** Text of the single reply-keyboard button; pressing it sends this text, which opens the menu. */
+    public static final String MENU_BUTTON = "🏠 Menu";
+
+    /**
+     * Sends a message with a one-button reply keyboard ("🏠 Menu"). Telegram keeps the keyboard and shows the
+     * four-squares icon in the input field to open and hide it.
+     */
+    public void sendWithMenuKeyboard(long chatId, String text) {
+        Map<String, Object> body = messageBody(chatId, text, List.of());
+        body.put("reply_markup", Map.of(
+                "keyboard", List.of(List.of(Map.of("text", MENU_BUTTON))),
+                "resize_keyboard", true,
+                "is_persistent", false));
+        formattedCall("sendMessage", body, text);
+    }
+
+    /** Removes the bot's command list, so Telegram shows no command menu button. */
+    public void clearCommands() {
+        call("deleteMyCommands", Map.of(), MediaType.APPLICATION_JSON);
     }
 
     public void sendResult(long chatId, String result, int replyTo, String taskId) {
@@ -236,9 +243,6 @@ public class TelegramClient {
         return new ApiException(error.path("error_code").intValue(fallbackCode),
                 error.path("description").asString("Ошибка Telegram").replace(token, "[token]"),
                 error.path("parameters").path("retry_after").intValue(0));
-    }
-
-    public record BotCommand(String command, String description) {
     }
 
     public record Button(String text, String data) {
