@@ -72,18 +72,8 @@ public class TelegramPollingService {
         progress.scheduleWithFixedDelay(this::refreshProgress, 5, 5, TimeUnit.SECONDS);
         try {
             telegram.initialize();
-            telegram.setCommands(List.of(
-                    new TelegramClient.BotCommand("start", "Открыть управление ботом"),
-                    new TelegramClient.BotCommand("menu", "Модель, effort и доступ"),
-                    new TelegramClient.BotCommand("help", "Как пользоваться ботом"),
-                    new TelegramClient.BotCommand("ping", "Проверить связь"),
-                    new TelegramClient.BotCommand("status", "Сессия и текущая задача"),
-                    new TelegramClient.BotCommand("cancel", "Отменить текущую задачу"),
-                    new TelegramClient.BotCommand("new", "Удалить контекст и начать заново"),
-                    new TelegramClient.BotCommand("model", "Выбрать модель"),
-                    new TelegramClient.BotCommand("effort", "Выбрать уровень effort"),
-                    new TelegramClient.BotCommand("mode", "Выбрать режим доступа")
-            ));
+            // No command list: the chat gets the "🏠 Menu" reply keyboard instead; typed commands still work.
+            telegram.clearCommands();
         } catch (TelegramClient.ApiException e) {
             log.warn("Could not configure Telegram commands: {}", e.getMessage());
         }
@@ -123,7 +113,7 @@ public class TelegramPollingService {
     private void sendStartupMessage() {
         String startedAt = STARTUP_TIME.format(Instant.ofEpochSecond(startedAtEpochSeconds).atZone(ZoneId.systemDefault()));
         try {
-            telegram.sendMessage(properties.telegram().allowedChatId(),
+            telegram.sendWithMenuKeyboard(properties.telegram().allowedChatId(),
                     "✅ Приложение успешно запущено\n\n🕒 Время запуска: " + startedAt);
         } catch (RuntimeException e) {
             log.warn("Could not send the startup message: {}", e.getMessage());
@@ -156,6 +146,11 @@ public class TelegramPollingService {
         if (text.isBlank()) {
             telegram.sendScreen(chatId, "Пока принимаю только текст. Опишите задачу сообщением.",
                     menus.mainButtons(), replyTo);
+            return;
+        }
+        if (text.equals(TelegramClient.MENU_BUTTON)) {
+            // The reply-keyboard button: open the menu, never send it to Claude.
+            show(chatId, null, replyTo, menus.main(""));
             return;
         }
         if (!text.startsWith("/")) {
@@ -191,7 +186,8 @@ public class TelegramPollingService {
         }
         switch (command) {
             case "/start" -> {
-                telegram.removeLegacyKeyboard(chatId);
+                telegram.sendWithMenuKeyboard(chatId, "Кнопка «" + TelegramClient.MENU_BUTTON
+                        + "» — в клавиатуре бота (значок с квадратиками в поле ввода).");
                 show(chatId, null, replyTo, menus.main("Agento готов. Отправьте задачу обычным текстом."));
             }
             case "/help" -> show(chatId, null, replyTo, help());
