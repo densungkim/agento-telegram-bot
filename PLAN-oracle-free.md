@@ -6,8 +6,8 @@
 |---|------|--------|--------|--------|
 | 1 | Prepare the oracle-free server | ✅ done | medium | — |
 | 2 | Branch `oracle-free` with its own deploy workflow | ✅ done | medium | `425fb4a`; master `9152a4d` |
-| 3 | README on `oracle-free`: independent branch | ▶ next | low | — |
-| 4 | Secrets commands, deploy, check | ⏳ todo | low | — |
+| 3 | README on `oracle-free`: independent branch | ✅ done | low | — (not committed yet) |
+| 4 | Secrets commands, deploy, check | 🔄 in progress (waiting for User actions) | low | — |
 
 Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus 5.5.
 
@@ -78,13 +78,14 @@ Required: `VPS_HOST_ORACLE_FREE`, `VPS_SSH_KEY_ORACLE_FREE` (private key `vps_ag
 **Done when:** branch `oracle-free` exists and its workflow reads only `*_ORACLE_FREE` secrets and deploys only from itself.
 
 ## Step 3 — README on `oracle-free`: independent branch (low)
-- [ ] README section on `oracle-free`: this branch deploys to oracle-free, is independent from `master` and never merged;
-      deploy with "Run workflow" on branch `oracle-free`; the list of `*_ORACLE_FREE` secrets.
+- [x] README section "Branch `oracle-free`" at the top: independent, never merged, how to deploy, both branch guards,
+      required `*_ORACLE_FREE` secrets (optional ones = README list + suffix), server setup, link to this plan.
 
 **Done when:** README on `oracle-free` describes the branch.
 
 ## Step 4 — Secrets commands, deploy, check (low)
-- [ ] Exact `gh secret set …_ORACLE_FREE` commands → "User actions".
+- [x] Exact `gh secret set …_ORACLE_FREE` commands → "User actions" (host `92.5.183.236`, port 22 = default, user `agento`
+      = default, so `VPS_PORT/USER/APP_DIR_ORACLE_FREE` are not needed).
 - [ ] After the user's go-ahead: push the branch, run the workflow on `oracle-free`, check the log and that the startup message
       arrives in the new bot's chat.
 - [ ] Manual test checklist for the new bot (short version of PLAN-claude-migration Step 7).
@@ -107,7 +108,8 @@ _`user, claude` = Claude can do it after the user's go-ahead; `only user` = need
 
 | # | Action | Who | Claude can do it if | Status |
 |---|--------|-----|---------------------|--------|
-| 1 | Add the `*_ORACLE_FREE` secrets (commands from Step 4; tokens and chat id are your values) | only user | never for token values; my go-ahead for `VPS_HOST` | ⏳ |
+| 1 | Add the `*_ORACLE_FREE` secrets, in the repo folder: `gh secret set VPS_HOST_ORACLE_FREE --body 92.5.183.236`; `Get-Content -Raw $HOME\.ssh\vps_agento_ed25519 \| gh secret set VPS_SSH_KEY_ORACLE_FREE`; then `gh secret set TELEGRAM_BOT_TOKEN_ORACLE_FREE`, `gh secret set TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE`, `gh secret set CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE` (each asks for the value) | only user | never for token values; my go-ahead for `VPS_HOST` and the SSH key file | ⏳ |
+| 1a | Commit README + plan on `oracle-free` (Step 3/4 changes) | user, claude | my go-ahead | ⏳ |
 | 2 | Push branch `oracle-free` and run its workflow | user, claude | my go-ahead | ⏳ |
 | 2a | Push `master` (guard commit `9152a4d`) | user, claude | my go-ahead | ⏳ |
 | 3 | Manual test of the new bot in Telegram | only user | never (manual testing on my device) | ⏳ |
