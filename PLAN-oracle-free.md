@@ -5,14 +5,14 @@
 | # | Step | Status | Effort | Commit |
 |---|------|--------|--------|--------|
 | 1 | Prepare the oracle-free server | ✅ done | medium | — |
-| 2 | Branch `oracle-free` with its own deploy workflow | ▶ next | medium | — |
-| 3 | README on `oracle-free`: independent branch | ⏳ todo | low | — |
+| 2 | Branch `oracle-free` with its own deploy workflow | ✅ done | medium | `425fb4a`; master `9152a4d` |
+| 3 | README on `oracle-free`: independent branch | ▶ next | low | — |
 | 4 | Secrets commands, deploy, check | ⏳ todo | low | — |
 
 Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus 5.5.
 
-**Resume here:** Step 1 done (server ready for `agento`). Next: Step 2 — branch `oracle-free` already exists (`6eda826`);
-next sub-task is the workflow with `*_ORACLE_FREE` secrets.
+**Resume here:** Step 2 done (workflow `425fb4a`, master guard `9152a4d` not pushed). Next: Step 3, README section on
+`oracle-free`.
 
 ### How to use this file
 - Source of truth for progress. Re-read it at session start and after context compaction, before doing anything.
@@ -71,7 +71,8 @@ Required: `VPS_HOST_ORACLE_FREE`, `VPS_SSH_KEY_ORACLE_FREE` (private key `vps_ag
       `_ORACLE_FREE` suffix (env names inside the job unchanged), name "Build and deploy Agento Bot (oracle-free)",
       concurrency group `agento-bot-oracle-free-deploy`, `workflow_dispatch` only; error texts name the new secrets.
 - [x] Guard: first step "Check branch" fails unless `github.ref_name == oracle-free`.
-- [ ] **Ask user first:** mirror guard in `master`'s workflow (refuse to run outside `master`) — a change on `master`.
+- [x] **Ask user first:** mirror guard in `master`'s workflow — user agreed; committed on `master` as `9152a4d`
+      (not pushed yet, see User actions).
 - [x] Syntax: `bash -n` on the guard, prepare and remote shell blocks; `mvn -B -q package -DskipTests` passes.
 
 **Done when:** branch `oracle-free` exists and its workflow reads only `*_ORACLE_FREE` secrets and deploys only from itself.
@@ -108,4 +109,5 @@ _`user, claude` = Claude can do it after the user's go-ahead; `only user` = need
 |---|--------|-----|---------------------|--------|
 | 1 | Add the `*_ORACLE_FREE` secrets (commands from Step 4; tokens and chat id are your values) | only user | never for token values; my go-ahead for `VPS_HOST` | ⏳ |
 | 2 | Push branch `oracle-free` and run its workflow | user, claude | my go-ahead | ⏳ |
+| 2a | Push `master` (guard commit `9152a4d`) | user, claude | my go-ahead | ⏳ |
 | 3 | Manual test of the new bot in Telegram | only user | never (manual testing on my device) | ⏳ |
