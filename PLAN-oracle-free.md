@@ -6,13 +6,12 @@
 |---|------|--------|--------|--------|
 | 1 | Prepare the oracle-free server | ✅ done | medium | — |
 | 2 | Branch `oracle-free` with its own deploy workflow | ✅ done | medium | `425fb4a`; master `9152a4d` |
-| 3 | README on `oracle-free`: independent branch | ✅ done | low | — (not committed yet) |
-| 4 | Secrets commands, deploy, check | 🔄 in progress (waiting for User actions) | low | — |
+| 3 | README on `oracle-free`: independent branch | ✅ done | low | `f32bced` |
+| 4 | Secrets commands, deploy, check | ✅ done | low | `2a99cb6` (deployed) |
 
 Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus 5.5.
 
-**Resume here:** Step 2 done (workflow `425fb4a`, master guard `9152a4d` not pushed). Next: Step 3, README section on
-`oracle-free`.
+**Resume here:** All steps done; the oracle-free bot is deployed. Next: User action #3 (manual test in Telegram).
 
 ### How to use this file
 - Source of truth for progress. Re-read it at session start and after context compaction, before doing anything.
@@ -86,9 +85,15 @@ Required: `VPS_HOST_ORACLE_FREE`, `VPS_SSH_KEY_ORACLE_FREE` (private key `vps_ag
 ## Step 4 — Secrets commands, deploy, check (low)
 - [x] Exact `gh secret set …_ORACLE_FREE` commands → "User actions" (host `92.5.183.236`, port 22 = default, user `agento`
       = default, so `VPS_PORT/USER/APP_DIR_ORACLE_FREE` are not needed).
-- [ ] After the user's go-ahead: push the branch, run the workflow on `oracle-free`, check the log and that the startup message
-      arrives in the new bot's chat.
-- [ ] Manual test checklist for the new bot (short version of PLAN-claude-migration Step 7).
+- [x] After the user's go-ahead: both branches pushed; run 45013025431 on `oracle-free` (`2a99cb6`) succeeded — all checks
+      passed, no sandbox warning, bot `RUNNING`, `app.env` 600, startup message sent without errors.
+- [x] Manual test checklist for the new bot:
+  1. The startup message "✅ Приложение успешно запущено" arrived in the new bot's chat.
+  2. `/start` → menu; `/model` shows "Opus 5.5", "Sonnet 5.5", …
+  3. Ask for `docker ps` as a table → card shows `Запущено: … · bypassPermissions`, the answer lists the containers.
+  4. Follow-up question → Claude remembers the previous message.
+  5. "send me a file with the docker container list" → the file arrives and is gone from `~/agento-outbox`.
+  6. `/new` → the next message starts fresh.
 
 **Done when:** the oracle-free bot runs from the branch and answers in its own chat.
 
@@ -108,8 +113,8 @@ _`user, claude` = Claude can do it after the user's go-ahead; `only user` = need
 
 | # | Action | Who | Claude can do it if | Status |
 |---|--------|-----|---------------------|--------|
-| 1 | Add the `*_ORACLE_FREE` secrets, in the repo folder: `gh secret set VPS_HOST_ORACLE_FREE --body 92.5.183.236`; `Get-Content -Raw $HOME\.ssh\vps_agento_ed25519 \| gh secret set VPS_SSH_KEY_ORACLE_FREE`; then `gh secret set TELEGRAM_BOT_TOKEN_ORACLE_FREE`, `gh secret set TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE`, `gh secret set CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE` (each asks for the value) | only user | never for token values; my go-ahead for `VPS_HOST` and the SSH key file | ⏳ |
-| 1a | Commit README + plan on `oracle-free` (Step 3/4 changes) | user, claude | my go-ahead | ⏳ |
-| 2 | Push branch `oracle-free` and run its workflow | user, claude | my go-ahead | ⏳ |
-| 2a | Push `master` (guard commit `9152a4d`) | user, claude | my go-ahead | ⏳ |
+| 1 | Add the `*_ORACLE_FREE` secrets, in the repo folder: `gh secret set VPS_HOST_ORACLE_FREE --body 92.5.183.236`; `Get-Content -Raw $HOME\.ssh\vps_agento_ed25519 \| gh secret set VPS_SSH_KEY_ORACLE_FREE`; then `gh secret set TELEGRAM_BOT_TOKEN_ORACLE_FREE`, `gh secret set TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE`, `gh secret set CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE` (each asks for the value) | only user | never for token values; my go-ahead for `VPS_HOST` and the SSH key file | ✅ |
+| 1a | Commit README + plan on `oracle-free` (Step 3/4 changes) | user, claude | my go-ahead | ✅ |
+| 2 | Push branch `oracle-free` and run its workflow | user, claude | my go-ahead | ✅ |
+| 2a | Push `master` (guard commit `9152a4d`) | user, claude | my go-ahead | ✅ |
 | 3 | Manual test of the new bot in Telegram | only user | never (manual testing on my device) | ⏳ |
