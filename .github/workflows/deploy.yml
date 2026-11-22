@@ -1,4 +1,4 @@
-name: Build and deploy Agento Bot
+name: Build and deploy Agento Bot (oracle-free)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agento-bot-vps-deploy
+  group: agento-bot-oracle-free-deploy
   cancel-in-progress: false
 
 jobs:
@@ -15,6 +15,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # This branch deploys only to oracle-free with *_ORACLE_FREE secrets; it is never merged with master.
+      - name: Check branch
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_NAME" != "oracle-free" ]; then
+            echo "This workflow deploys oracle-free and must run on branch oracle-free, not '$REF_NAME'."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
@@ -39,9 +49,9 @@ jobs:
 
       - name: Prepare SSH key
         env:
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY_ORACLE_FREE }}
+          VPS_HOST: ${{ secrets.VPS_HOST_ORACLE_FREE }}
+          VPS_PORT: ${{ secrets.VPS_PORT_ORACLE_FREE }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
@@ -56,24 +66,24 @@ jobs:
 
       - name: Prepare deployment files
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID }}
-          TELEGRAM_MESSAGE_MAX_LENGTH: ${{ secrets.TELEGRAM_MESSAGE_MAX_LENGTH }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          CLAUDE_CONFIG_DIR: ${{ secrets.CLAUDE_CONFIG_DIR }}
-          CLAUDE_COMMAND: ${{ secrets.CLAUDE_COMMAND }}
-          CLAUDE_WORKDIR: ${{ secrets.CLAUDE_WORKDIR }}
-          CLAUDE_TIMEOUT_SECONDS: ${{ secrets.CLAUDE_TIMEOUT_SECONDS }}
-          CLAUDE_MAX_OUTPUT_CHARS: ${{ secrets.CLAUDE_MAX_OUTPUT_CHARS }}
-          CLAUDE_MODEL: ${{ secrets.CLAUDE_MODEL }}
-          CLAUDE_EFFORT: ${{ secrets.CLAUDE_EFFORT }}
-          CLAUDE_ACCESS_MODE: ${{ secrets.CLAUDE_ACCESS_MODE }}
-          CLAUDE_SETTINGS_FILE: ${{ secrets.CLAUDE_SETTINGS_FILE }}
-          CLAUDE_SESSION_FILE: ${{ secrets.CLAUDE_SESSION_FILE }}
-          CLAUDE_ALLOWED_MODELS: ${{ secrets.CLAUDE_ALLOWED_MODELS }}
-          CLAUDE_ALLOWED_EFFORTS: ${{ secrets.CLAUDE_ALLOWED_EFFORTS }}
-          CLAUDE_ALLOWED_ACCESS_MODES: ${{ secrets.CLAUDE_ALLOWED_ACCESS_MODES }}
-          CLAUDE_SYSTEM_PROMPT: ${{ secrets.CLAUDE_SYSTEM_PROMPT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN_ORACLE_FREE }}
+          TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE }}
+          TELEGRAM_MESSAGE_MAX_LENGTH: ${{ secrets.TELEGRAM_MESSAGE_MAX_LENGTH_ORACLE_FREE }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE }}
+          CLAUDE_CONFIG_DIR: ${{ secrets.CLAUDE_CONFIG_DIR_ORACLE_FREE }}
+          CLAUDE_COMMAND: ${{ secrets.CLAUDE_COMMAND_ORACLE_FREE }}
+          CLAUDE_WORKDIR: ${{ secrets.CLAUDE_WORKDIR_ORACLE_FREE }}
+          CLAUDE_TIMEOUT_SECONDS: ${{ secrets.CLAUDE_TIMEOUT_SECONDS_ORACLE_FREE }}
+          CLAUDE_MAX_OUTPUT_CHARS: ${{ secrets.CLAUDE_MAX_OUTPUT_CHARS_ORACLE_FREE }}
+          CLAUDE_MODEL: ${{ secrets.CLAUDE_MODEL_ORACLE_FREE }}
+          CLAUDE_EFFORT: ${{ secrets.CLAUDE_EFFORT_ORACLE_FREE }}
+          CLAUDE_ACCESS_MODE: ${{ secrets.CLAUDE_ACCESS_MODE_ORACLE_FREE }}
+          CLAUDE_SETTINGS_FILE: ${{ secrets.CLAUDE_SETTINGS_FILE_ORACLE_FREE }}
+          CLAUDE_SESSION_FILE: ${{ secrets.CLAUDE_SESSION_FILE_ORACLE_FREE }}
+          CLAUDE_ALLOWED_MODELS: ${{ secrets.CLAUDE_ALLOWED_MODELS_ORACLE_FREE }}
+          CLAUDE_ALLOWED_EFFORTS: ${{ secrets.CLAUDE_ALLOWED_EFFORTS_ORACLE_FREE }}
+          CLAUDE_ALLOWED_ACCESS_MODES: ${{ secrets.CLAUDE_ALLOWED_ACCESS_MODES_ORACLE_FREE }}
+          CLAUDE_SYSTEM_PROMPT: ${{ secrets.CLAUDE_SYSTEM_PROMPT_ORACLE_FREE }}
         run: |
           set -euo pipefail
           mkdir -p deploy
@@ -82,9 +92,9 @@ jobs:
           cp scripts/agento-bot-stop.sh deploy/agento-bot-stop.sh
           cp scripts/claude-version.txt deploy/claude-version.txt
 
-          : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN secret is required}"
-          : "${TELEGRAM_ALLOWED_CHAT_ID:?TELEGRAM_ALLOWED_CHAT_ID secret is required}"
-          : "${CLAUDE_CODE_OAUTH_TOKEN:?CLAUDE_CODE_OAUTH_TOKEN secret is required (claude setup-token)}"
+          : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN_ORACLE_FREE secret is required}"
+          : "${TELEGRAM_ALLOWED_CHAT_ID:?TELEGRAM_ALLOWED_CHAT_ID_ORACLE_FREE secret is required}"
+          : "${CLAUDE_CODE_OAUTH_TOKEN:?CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE secret is required (claude setup-token)}"
           : "${TELEGRAM_MESSAGE_MAX_LENGTH:=3900}"
 
           : "${CLAUDE_COMMAND:=claude}"
@@ -137,10 +147,10 @@ jobs:
 
       - name: Copy files to VPS
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_HOST: ${{ secrets.VPS_HOST_ORACLE_FREE }}
+          VPS_USER: ${{ secrets.VPS_USER_ORACLE_FREE }}
+          VPS_PORT: ${{ secrets.VPS_PORT_ORACLE_FREE }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR_ORACLE_FREE }}
         run: |
           set -euo pipefail
           : "${VPS_USER:=agento}"
@@ -152,10 +162,10 @@ jobs:
 
       - name: Restart bot on VPS
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_HOST: ${{ secrets.VPS_HOST_ORACLE_FREE }}
+          VPS_USER: ${{ secrets.VPS_USER_ORACLE_FREE }}
+          VPS_PORT: ${{ secrets.VPS_PORT_ORACLE_FREE }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR_ORACLE_FREE }}
         run: |
           set -euo pipefail
           : "${VPS_USER:=agento}"
@@ -245,7 +255,7 @@ jobs:
           fi
 
           # Same environment as the bot: the token from app.env, without an API key that would win over it.
-          env -u ANTHROPIC_API_KEY "$CLAUDE_COMMAND" auth status >/dev/null 2>&1 || { echo "Claude Code is not authenticated with CLAUDE_CODE_OAUTH_TOKEN. Create a token with 'claude setup-token' and update the secret."; exit 1; }
+          env -u ANTHROPIC_API_KEY "$CLAUDE_COMMAND" auth status >/dev/null 2>&1 || { echo "Claude Code is not authenticated with CLAUDE_CODE_OAUTH_TOKEN. Create a token with 'claude setup-token' and update the CLAUDE_CODE_OAUTH_TOKEN_ORACLE_FREE secret."; exit 1; }
           [ -d "$CLAUDE_WORKDIR" ] && [ -x "$CLAUDE_WORKDIR" ] || { echo "CLAUDE_WORKDIR is not accessible to the bot user: $CLAUDE_WORKDIR"; exit 1; }
           if [[ ",$CLAUDE_ALLOWED_ACCESS_MODES," == *",workspace,"* ]]; then
             for tool in bwrap socat; do
