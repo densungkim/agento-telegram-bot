@@ -19,7 +19,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 import static com.agento.bot.TelegramClient.Button;
 import static com.agento.bot.TelegramMenus.Screen;
@@ -39,6 +38,7 @@ public class TelegramPollingService {
     private final AtomicBoolean polling = new AtomicBoolean();
     private final AtomicBoolean telegramReady = new AtomicBoolean();
     private final AtomicReference<ActiveTask> activeTask = new AtomicReference<>();
+    private volatile String lastRuntime;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(threads("agento-task-runner"));
     private final ScheduledExecutorService progress = Executors.newSingleThreadScheduledExecutor(threads("agento-progress"));
     private long offset;
@@ -305,7 +305,18 @@ public class TelegramPollingService {
         String terminal = "Обработка завершена.";
         try {
             if (!active.cancelRequested) {
-                result = task.run(phase -> active.phase = phase);
+                result = task.run(new TaskProgress() {
+                    @Override
+                    public void phase(String text) {
+                        active.phase = text;
+                    }
+
+                    @Override
+                    public void runtime(String model, String permissionMode) {
+                        active.runtime = runtimeText(model, permissionMode, active.snapshot);
+                        lastRuntime = active.runtime;
+                    }
+                });
             }
         } catch (Exception e) {
             log.warn("Bot task failed: {}", e.getMessage());
@@ -414,7 +425,16 @@ public class TelegramPollingService {
         return "**Задача #" + active.shortId() + "** · " + active.elapsed()
                 + "\n" + active.preview + "\n\n" + state
                 + (active.finishing ? "" : "\n" + active.phase)
-                + (active.snapshot == null ? "" : "\n\n" + menus.summary(active.snapshot));
+                + (active.snapshot == null ? "" : "\n\n" + menus.summary(active.snapshot))
+                + (active.runtime == null ? "" : "\n" + active.runtime);
+    }
+
+    /** Model id and permission mode Claude Code really started with; a downgraded mode is flagged. */
+    private static String runtimeText(String model, String permissionMode, ClaudeSettings snapshot) {
+        String expected = snapshot == null ? "" : snapshot.permissionMode();
+        return "**Запущено:** " + (model.isBlank() ? "модель неизвестна" : model)
+                + " · " + (permissionMode.isBlank() ? "режим неизвестен" : permissionMode)
+                + (expected.isEmpty() || expected.equals(permissionMode) ? "" : " ⚠ ожидался " + expected);
     }
 
     private List<List<Button>> progressButtons(ActiveTask active) {
@@ -442,6 +462,9 @@ public class TelegramPollingService {
             text += "\n\nЗадача #" + active.shortId() + " · " + active.elapsed()
                     + "\n" + active.preview + "\n" + active.phase
                     + (active.snapshot == null ? "" : "\n\nПараметры выполняемой задачи:\n" + menus.summary(active.snapshot));
+        }
+        if (lastRuntime != null) {
+            text += "\n\nПоследний запуск Claude Code:\n" + lastRuntime;
         }
         text += "\n\nНастройки следующих запросов:\n" + menus.summary(settings.current())
                 + "\n\nРабочий каталог: " + properties.claude().workdir();
@@ -500,7 +523,7 @@ public class TelegramPollingService {
 
     @FunctionalInterface
     private interface Task {
-        String run(Consumer<String> progress);
+        String run(TaskProgress progress);
     }
 
     private static final class ActiveTask {
@@ -512,6 +535,7 @@ public class TelegramPollingService {
         private final String preview;
         private final ClaudeSettings snapshot;
         private volatile String phase;
+        private volatile String runtime;
         private volatile int messageId;
         private volatile long nextUpdateNanos;
         private volatile Thread worker;

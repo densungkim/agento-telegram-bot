@@ -16,11 +16,11 @@ final class ClaudeEventStream implements Consumer<String> {
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final ClaudeSessionStore sessions;
     private final String expectedSessionId;
-    private final Consumer<String> progress;
+    private final TaskProgress progress;
     private volatile boolean started;
     private volatile Result result;
 
-    ClaudeEventStream(ClaudeSessionStore sessions, String expectedSessionId, Consumer<String> progress) {
+    ClaudeEventStream(ClaudeSessionStore sessions, String expectedSessionId, TaskProgress progress) {
         this.sessions = sessions;
         this.expectedSessionId = ClaudeSessionStore.checkedId(expectedSessionId);
         this.progress = progress;
@@ -66,9 +66,10 @@ final class ClaudeEventStream implements Consumer<String> {
                 }
                 sessions.confirm(id);
                 started = true;
-                progress.accept("Сессия готова. Claude обрабатывает запрос.");
+                progress.runtime(event.path("model").asString(""), event.path("permissionMode").asString(""));
+                progress.phase("Сессия готова. Claude обрабатывает запрос.");
             }
-            case "api_retry" -> progress.accept("Повторяю запрос к API Claude (попытка "
+            case "api_retry" -> progress.phase("Повторяю запрос к API Claude (попытка "
                     + event.path("attempt").asString("?") + ").");
             default -> {
                 // task_summary, post_turn_summary and other system events are informational only.
@@ -87,7 +88,7 @@ final class ClaudeEventStream implements Consumer<String> {
             };
         }
         if (phase != null) {
-            progress.accept(phase);
+            progress.phase(phase);
         }
     }
 

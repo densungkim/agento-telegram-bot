@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
 
 @Service
 public class ClaudeRunner {
@@ -20,11 +19,12 @@ public class ClaudeRunner {
 
     /**
      * Inherited variables removed from the {@code claude} process: an API key always wins over the subscription
-     * token in {@code -p} mode, the effort variable wins over {@code --effort}, and the bot's Telegram token must
-     * not be visible to the commands Claude runs.
+     * token in {@code -p} mode, the effort variable wins over {@code --effort}, the bot's Telegram token must not be
+     * visible to the commands Claude runs, and {@code CLAUDE_CODE_SUBPROCESS_ENV_SCRUB} forces the permission mode
+     * to {@code default} (verified on the server: full access was silently downgraded and Docker was unreachable).
      */
     static final Set<String> UNSET_ENVIRONMENT = Set.of(
-            "ANTHROPIC_API_KEY", "CLAUDE_CODE_EFFORT_LEVEL", "TELEGRAM_BOT_TOKEN");
+            "ANTHROPIC_API_KEY", "CLAUDE_CODE_EFFORT_LEVEL", "TELEGRAM_BOT_TOKEN", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB");
 
     /**
      * Auto memory is shared by all sessions of a project; the bot's {@code /new} must start from a clean slate, so
@@ -42,7 +42,7 @@ public class ClaudeRunner {
         this.sessions = sessions;
     }
 
-    public String run(String userPrompt, ClaudeSettings settings, Consumer<String> progress) {
+    public String run(String userPrompt, ClaudeSettings settings, TaskProgress progress) {
         File workdir = new File(properties.claude().workdir());
         if (!workdir.exists() || !workdir.isDirectory()) {
             return "Рабочий каталог Claude Code не найден: " + workdir.getAbsolutePath();
