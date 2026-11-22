@@ -3,7 +3,9 @@ package com.agento.bot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
@@ -12,7 +14,10 @@ import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +28,7 @@ public class TelegramClient {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramClient.class);
     private final RestClient restClient;
+    private final RestClient uploadClient;
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final int pollingTimeoutSeconds;
     private final int messageMaxLength;
@@ -37,6 +43,12 @@ public class TelegramClient {
         pollingTimeoutSeconds = properties.telegram().pollingTimeoutSeconds();
         messageMaxLength = Math.clamp(properties.telegram().messageMaxLength(), 500, 3900);
         restClient = builder.baseUrl("https://api.telegram.org/bot" + token).build();
+        // Uploads of up to 49 MB need more time than the 35 s read timeout of the shared client.
+        JdkClientHttpRequestFactory uploadFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+        uploadFactory.setReadTimeout(Duration.ofMinutes(10));
+        uploadClient = RestClient.builder().requestFactory(uploadFactory)
+                .baseUrl("https://api.telegram.org/bot" + token).build();
     }
 
     public void initialize() {
@@ -149,6 +161,17 @@ public class TelegramClient {
         call("sendDocument", body, MediaType.MULTIPART_FORM_DATA);
     }
 
+    /** Sends a file from the server as a document, streamed from disk. */
+    public void sendFile(long chatId, Path file, int replyTo) {
+        LinkedMultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("chat_id", Long.toString(chatId));
+        body.add("document", new FileSystemResource(file));
+        if (replyTo > 0) {
+            body.add("reply_parameters", mapper.writeValueAsString(replyParameters(replyTo)));
+        }
+        call("sendDocument", body, MediaType.MULTIPART_FORM_DATA);
+    }
+
     private Map<String, Object> messageBody(long chatId, String text, List<List<Button>> buttons) {
         String safe = text == null || text.isBlank() ? "Нет данных." : TelegramTextFormatter.clip(text, 3900);
         Map<String, Object> body = new LinkedHashMap<>();
@@ -183,7 +206,8 @@ public class TelegramClient {
 
     private JsonNode call(String method, Object body, MediaType contentType) {
         try {
-            JsonNode response = restClient.post().uri("/" + method).contentType(contentType)
+            RestClient client = MediaType.MULTIPART_FORM_DATA.equals(contentType) ? uploadClient : restClient;
+            JsonNode response = client.post().uri("/" + method).contentType(contentType)
                     .body(body).retrieve().body(JsonNode.class);
             if (response == null) {
                 throw new ApiException(0, "Telegram вернул пустой ответ.", 0);
