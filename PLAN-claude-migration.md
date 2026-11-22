@@ -11,10 +11,11 @@
 | 5 | Telegram texts, README, `.env.example` | ✅ done | medium | `e272517`, `dbc5aa3`, `475e147` |
 | 6 | Deployment (workflow, install script, checks) | ✅ done | medium | `e6933d8`, `475e147` |
 | 7 | Self-review | ✅ done | medium | `e272517` |
+| 8 | Full session cleanup on `/new` (added 2026-11-22, user's request) | ✅ done | medium | `88c2c32`, `c117ecb` |
 
 Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus 5.5.
 
-**Resume here:** All steps done and committed. Next: User actions #7 (deploy), then #8 (manual test checklist in Step 7).
+**Resume here:** Steps 1–8 done, committed and deployed. Next: User actions #8 (manual test checklist in Step 7).
 
 ### How to use this file
 - Source of truth for progress. Re-read it at session start and after context compaction, before doing anything.
@@ -193,11 +194,28 @@ Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus
    ask to `curl https://example.com` → network is blocked. Remove `test.txt`. Back to `Полный доступ`.
 9. Send a long task, press `Отменить` → card shows the cancellation; the next task still works.
 10. Ask for a very long answer (e.g. 300 numbered lines) → arrives as `agento-<id>.md`.
-11. `/new` → "Предыдущий контекст удалён…"; next message does not remember the previous conversation;
-    on the server `ls ~/.claude/projects/*/` no longer has the old `<UUID>.jsonl`.
+11. `/new` → "Предыдущая сессия полностью удалена…"; next message does not remember the previous conversation;
+    on the server nothing named after the old UUID is left: `ls ~/.claude/projects/*/ ~/.claude/file-history ~/.claude/session-env`,
+    and `~/.claude/projects/-home-agento/memory` is gone; `/status` shows no "Не удалены файлы прежних сессий".
 12. Restart check (optional): re-run the workflow → the conversation continues after the restart.
 
 **Done when:** project packages, checklist handed to the user.
+
+## Step 8 — Full session cleanup on `/new` (medium)
+Single user, single session: after `/new` the old session is never needed again, so nothing of it may stay on disk or
+leak into the new session.
+- [x] Docs (memory, `~/.claude` layout, env vars): auto memory = `projects/<project>/memory/`, off with
+      `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`; per-session data = `projects/<project>/<id>.jsonl` (+ `.orphaned-*`,
+      `.jsonl.superseded-*`), `projects/<project>/<id>/`, `file-history/<id>/`, `session-env`, `tasks`, `uploads/<id>/`,
+      `dev-mods/<id>/`, `image-cache/<id>/`, `debug/<id>.txt`.
+- [x] `ClaudeSessionStore.reset()` deletes all of the above by id (entries whose name starts with the id) and the
+      `memory/` of the workdir's project and of every project that held the session.
+- [x] `ClaudeRunner` passes `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` to every run.
+- [x] `pendingDeletion` in the state file: ids are removed only when nothing is left; retried on `/new` and at startup;
+      `/status` shows the count. README updated.
+- [x] Compile, commit (`88c2c32`, `c117ecb`), push, deploy (run 45006737904, success; bot restarted).
+
+**Done when:** after `/new` no file with the old id remains under the config dir, and the new session has no memory of it.
 
 ---
 
@@ -240,6 +258,9 @@ _Non-obvious decisions and deviations, newest last._
   print it. User agreed: `TELEGRAM_BOT_TOKEN` added to `ClaudeRunner.UNSET_ENVIRONMENT` (README updated); package passes.
 - Not verified until the first server run: `claude auth status` exit code with only `CLAUDE_CODE_OAUTH_TOKEN`,
   `permission_denials[].tool_name`, transcript layout on Linux, sandbox on the server's Ubuntu.
+- Step 8: not touched on `/new` — `history.jsonl` (global prompt history; no session id in its entries), `plans/`,
+  `paste-cache/` (keying not documented), `shell-snapshots/` (removed by Claude Code on clean exit). `claude purge`
+  was not used: it also deletes the user's own interactive data for the same directory.
 - D5: native installer (`~/.local/bin/claude`), `DISABLE_AUTOUPDATER=1`, manual `claude update`; deploy checks a minimum
   version from `scripts/claude-version.txt`.
 - 2026-11-22: actions for the user are collected in "User actions" and handed over only after Step 7 (new global rule).
@@ -256,5 +277,5 @@ Checked 2026-11-22: `gh` is logged in as `densungkim` (scopes `repo`, …; ADMIN
 | 4 | Locally: `claude setup-token` (browser login), then `gh secret set CLAUDE_CODE_OAUTH_TOKEN` and paste the token | only user | never (login + token value) | ✅ secret exists |
 | 5 | Optional `CLAUDE_*` secrets — not needed, the workflow defaults match `.env.example` | — | — | ✅ |
 | 6 | Commit and push the migration to `master` (the workflow builds from GitHub) | user, claude | my go-ahead (commit and push separately) | ✅ 5 grouped commits, pushed |
-| 7 | Run the deploy workflow (`gh workflow run deploy.yml`) and check its log | user, claude | my go-ahead | ⏳ |
+| 7 | Run the deploy workflow (`gh workflow run deploy.yml`) and check its log | user, claude | my go-ahead | ✅ run 45005820037 (`a0076c8`): all checks passed, no sandbox warning, bot RUNNING, `app.env` 600 |
 | 8 | Manual test in Telegram with the checklist from Step 7 | only user | never (manual testing on my device) | ⏳ |
