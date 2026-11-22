@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -27,6 +29,7 @@ import static com.agento.bot.TelegramMenus.Screen;
 public class TelegramPollingService {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramPollingService.class);
+    private static final DateTimeFormatter STARTUP_TIME = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
     private final TelegramClient telegram;
     private final ClaudeRunner claude;
     private final ProcessRunner processes;
@@ -89,6 +92,7 @@ public class TelegramPollingService {
             JsonNode response = telegram.getUpdates(offset);
             if (telegramReady.compareAndSet(false, true)) {
                 log.info("AGENTO_TELEGRAM_READY");
+                sendStartupMessage();
             }
             for (JsonNode update : response.path("result")) {
                 offset = update.path("update_id").longValue() + 1;
@@ -106,6 +110,17 @@ public class TelegramPollingService {
             log.warn("Telegram polling error: {}", e.getMessage());
         } finally {
             polling.set(false);
+        }
+    }
+
+    /** Sent once, after the first successful getUpdates; a failure must not stop polling. */
+    private void sendStartupMessage() {
+        String startedAt = STARTUP_TIME.format(Instant.ofEpochSecond(startedAtEpochSeconds).atZone(ZoneId.systemDefault()));
+        try {
+            telegram.sendMessage(properties.telegram().allowedChatId(),
+                    "✅ Приложение успешно запущено\n\n🕒 Время запуска: " + startedAt);
+        } catch (RuntimeException e) {
+            log.warn("Could not send the startup message: {}", e.getMessage());
         }
     }
 
