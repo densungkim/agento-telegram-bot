@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -22,6 +24,15 @@ public class ProcessRunner {
     private static final int MAX_CAPTURED_OUTPUT_CHARS = 200_000;
 
     private final AtomicReference<Process> activeProcess = new AtomicReference<>();
+    /**
+     * Own daemon threads for the blocking stdout/stderr readers. The common ForkJoin pool has only CPUs - 1 threads
+     * (one on a 2-CPU server), so one reader blocked the other and stalled event handling and other async work.
+     */
+    private final ExecutorService readers = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "agento-process-reader");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public CommandResult run(List<String> command, File workdir, Duration timeout) {
         return run(command, workdir, timeout, null);
@@ -65,7 +76,7 @@ public class ProcessRunner {
             Process running = process;
 
             CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(running,
-                    stdoutListener != null, null));
+                    stdoutListener != null, null), readers);
             eventsFuture = stdoutListener == null ? null
                     : CompletableFuture.supplyAsync(() -> readOutput(running, false, line -> {
                         synchronized (listenerLock) {
@@ -78,7 +89,7 @@ public class ProcessRunner {
                                 }
                             }
                         }
-                    }));
+                    }), readers);
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException();
             }
