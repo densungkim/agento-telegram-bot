@@ -131,9 +131,8 @@ jobs:
             write_env CLAUDE_SYSTEM_PROMPT
           fi
 
-          # Read by the Claude Code CLI itself: hide credentials from the commands Claude runs,
-          # and keep the installed version until it is updated deliberately.
-          printf '%s=%q\n' CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 1 >> deploy/app.env
+          # Read by the Claude Code CLI itself: keep the installed version until it is updated deliberately.
+          # Do not add CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: it forces the permission mode to default.
           printf '%s=%q\n' DISABLE_AUTOUPDATER 1 >> deploy/app.env
 
       - name: Copy files to VPS
