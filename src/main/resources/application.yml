@@ -11,20 +11,17 @@ agentobot:
     polling-timeout-seconds: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:20}
     message-max-length: ${TELEGRAM_MESSAGE_MAX_LENGTH:3900}
 
-  codex:
-    command: ${CODEX_COMMAND:codex}
-    workdir: ${CODEX_WORKDIR:/home/agento}
-    timeout-seconds: ${CODEX_TIMEOUT_SECONDS:900}
-    max-output-chars: ${CODEX_MAX_OUTPUT_CHARS:30000}
-    model: ${CODEX_MODEL:default}
-    reasoning-effort: ${CODEX_REASONING_EFFORT:default}
-    access-mode: ${CODEX_ACCESS_MODE:full-access}
-    skip-git-repo-check: ${CODEX_SKIP_GIT_REPO_CHECK:true}
-    settings-file: ${CODEX_SETTINGS_FILE:./agento-settings.properties}
-    session-file: ${CODEX_SESSION_FILE:./agento-session.properties}
-    auth-mode: ${CODEX_AUTH_MODE:chatgpt}
-    model-catalog-file: ${CODEX_MODEL_CATALOG_FILE:}
-    allowed-models: ${CODEX_ALLOWED_MODELS:}
-    allowed-reasoning-efforts: ${CODEX_ALLOWED_REASONING_EFFORTS:}
-    allowed-access-modes: ${CODEX_ALLOWED_ACCESS_MODES:read-only,workspace,full-access}
-    system-prompt: '${CODEX_SYSTEM_PROMPT:You are running on a real Linux VPS as the agento user. Be careful with secrets, databases, Docker volumes, keys, and production data. Execute requested commands directly when needed. Reply briefly and include only the useful result.}'
+  claude:
+    command: ${CLAUDE_COMMAND:claude}
+    workdir: ${CLAUDE_WORKDIR:/home/agento}
+    timeout-seconds: ${CLAUDE_TIMEOUT_SECONDS:900}
+    max-output-chars: ${CLAUDE_MAX_OUTPUT_CHARS:30000}
+    model: ${CLAUDE_MODEL:default}
+    effort: ${CLAUDE_EFFORT:default}
+    access-mode: ${CLAUDE_ACCESS_MODE:full-access}
+    settings-file: ${CLAUDE_SETTINGS_FILE:./agento-settings.properties}
+    session-file: ${CLAUDE_SESSION_FILE:./agento-session.properties}
+    allowed-models: ${CLAUDE_ALLOWED_MODELS:default,opus,sonnet,haiku,fable}
+    allowed-efforts: ${CLAUDE_ALLOWED_EFFORTS:default,low,medium,high,xhigh,max}
+    allowed-access-modes: ${CLAUDE_ALLOWED_ACCESS_MODES:read-only,workspace,full-access}
+    system-prompt: '${CLAUDE_SYSTEM_PROMPT:You are running on a real Linux VPS as the agento user. Be careful with secrets, databases, Docker volumes, keys, and production data. Execute requested commands directly when needed. Reply briefly and include only the useful result.}'

@@ -29,11 +29,11 @@ public class TelegramPollingService {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramPollingService.class);
     private final TelegramClient telegram;
-    private final CodexRunner codex;
+    private final ClaudeRunner claude;
     private final ProcessRunner processes;
     private final BotProperties properties;
-    private final CodexSettingsService settings;
-    private final CodexSessionStore sessions;
+    private final ClaudeSettingsService settings;
+    private final ClaudeSessionStore sessions;
     private final TelegramMenus menus;
     private final long startedAtEpochSeconds = Instant.now().getEpochSecond();
     private final AtomicBoolean polling = new AtomicBoolean();
@@ -43,14 +43,14 @@ public class TelegramPollingService {
     private final ScheduledExecutorService progress = Executors.newSingleThreadScheduledExecutor(threads("agento-progress"));
     private long offset;
 
-    public TelegramPollingService(TelegramClient telegram, CodexRunner codex, ProcessRunner processes,
-                                  BotProperties properties, CodexSettingsService settings,
-                                  CodexSessionStore sessions, TelegramMenus menus) {
+    public TelegramPollingService(TelegramClient telegram, ClaudeRunner claude, ProcessRunner processes,
+                                  BotProperties properties, ClaudeSettingsService settings,
+                                  ClaudeSessionStore sessions, TelegramMenus menus) {
         if (properties.telegram().allowedChatId() == 0) {
             throw new IllegalStateException("TELEGRAM_ALLOWED_CHAT_ID is required and cannot be 0");
         }
         this.telegram = telegram;
-        this.codex = codex;
+        this.claude = claude;
         this.processes = processes;
         this.properties = properties;
         this.settings = settings;
@@ -65,14 +65,14 @@ public class TelegramPollingService {
             telegram.initialize();
             telegram.setCommands(List.of(
                     new TelegramClient.BotCommand("start", "Открыть управление ботом"),
-                    new TelegramClient.BotCommand("menu", "Модель, reasoning и доступ"),
+                    new TelegramClient.BotCommand("menu", "Модель, effort и доступ"),
                     new TelegramClient.BotCommand("help", "Как пользоваться ботом"),
                     new TelegramClient.BotCommand("ping", "Проверить связь"),
                     new TelegramClient.BotCommand("status", "Сессия и текущая задача"),
                     new TelegramClient.BotCommand("cancel", "Отменить текущую задачу"),
                     new TelegramClient.BotCommand("new", "Удалить контекст и начать заново"),
                     new TelegramClient.BotCommand("model", "Выбрать модель"),
-                    new TelegramClient.BotCommand("reasoning", "Выбрать уровень reasoning"),
+                    new TelegramClient.BotCommand("effort", "Выбрать уровень effort"),
                     new TelegramClient.BotCommand("mode", "Выбрать режим доступа")
             ));
         } catch (TelegramClient.ApiException e) {
@@ -138,7 +138,7 @@ public class TelegramPollingService {
             return;
         }
         if (!text.startsWith("/")) {
-            startCodex(chatId, replyTo, text);
+            startClaude(chatId, replyTo, text);
             return;
         }
 
@@ -155,7 +155,7 @@ public class TelegramPollingService {
             }
             command = command.substring(0, mention);
         }
-        if (command.equals("/model") || command.equals("/reasoning") || command.equals("/mode")) {
+        if (command.equals("/model") || command.equals("/effort") || command.equals("/mode")) {
             String kind = command.substring(1);
             if (argument.isBlank()) {
                 show(chatId, null, replyTo, menus.options(kind, 0));
@@ -226,7 +226,7 @@ public class TelegramPollingService {
             switch (data) {
                 case "menu" -> show(chatId, messageId, messageId, menus.main(""));
                 case "models" -> show(chatId, messageId, messageId, menus.options("model", 0));
-                case "reasoning" -> show(chatId, messageId, messageId, menus.options("reasoning", 0));
+                case "effort" -> show(chatId, messageId, messageId, menus.options("effort", 0));
                 case "modes" -> show(chatId, messageId, messageId, menus.options("mode", 0));
                 case "status" -> show(chatId, messageId, messageId, status());
                 case "help" -> show(chatId, messageId, messageId, help());
@@ -244,7 +244,7 @@ public class TelegramPollingService {
         try {
             switch (kind) {
                 case "model" -> settings.setModel(value);
-                case "reasoning" -> settings.setReasoningEffort(value);
+                case "effort" -> settings.setEffort(value);
                 case "mode" -> settings.setAccessMode(value);
                 default -> throw new IllegalArgumentException("Неизвестная настройка.");
             }
@@ -258,29 +258,28 @@ public class TelegramPollingService {
         show(chatId, editId, replyTo, menus.main(notice));
     }
 
-    private void startCodex(long chatId, int replyTo, String prompt) {
+    private void startClaude(long chatId, int replyTo, String prompt) {
         if (busy()) {
             showBusy(chatId, replyTo);
             return;
         }
-        CodexSettings snapshot;
+        ClaudeSettings snapshot;
         try {
             snapshot = settings.settingsForRun();
-            sessions.resumeId();
         } catch (IllegalArgumentException | IllegalStateException e) {
             show(chatId, null, replyTo, menus.main(e.getMessage()));
             return;
         }
-        startTask(chatId, replyTo, prompt, snapshot, "Запускаю Codex.",
-                updates -> codex.runCodex(prompt, snapshot, updates));
+        startTask(chatId, replyTo, prompt, snapshot, "Запускаю Claude Code.",
+                updates -> claude.run(prompt, snapshot, updates));
     }
 
     private void startReset(long chatId, int replyTo) {
         startTask(chatId, replyTo, "Сброс контекста /new", null, "Удаляю предыдущую сессию.",
-                updates -> codex.newSession());
+                updates -> claude.newSession());
     }
 
-    private void startTask(long chatId, int replyTo, String prompt, CodexSettings snapshot,
+    private void startTask(long chatId, int replyTo, String prompt, ClaudeSettings snapshot,
                            String phase, Task task) {
         ActiveTask active = new ActiveTask(chatId, replyTo, prompt, snapshot, phase);
         if (processes.hasActiveProcess() || !activeTask.compareAndSet(null, active)) {
@@ -403,7 +402,7 @@ public class TelegramPollingService {
             return;
         }
         active.cancelRequested = true;
-        active.phase = "Останавливаю Codex.";
+        active.phase = "Останавливаю Claude Code.";
         Thread running = active.worker;
         if (running != null) {
             running.interrupt();
@@ -445,7 +444,7 @@ public class TelegramPollingService {
                     + (active.snapshot == null ? "" : "\n\nПараметры выполняемой задачи:\n" + menus.summary(active.snapshot));
         }
         text += "\n\nНастройки следующих запросов:\n" + menus.summary(settings.current())
-                + "\n\nРабочий каталог: " + properties.codex().workdir();
+                + "\n\nРабочий каталог: " + properties.claude().workdir();
         String problem = settings.validationProblem();
         return new Screen(text + (problem.isBlank() ? "" : "\n\n" + problem), menus.mainButtons());
     }
@@ -454,20 +453,20 @@ public class TelegramPollingService {
         return new Screen("""
                 **Agento — помощник для VPS**
 
-                Отправляйте задачи обычным текстом. Следующие сообщения продолжают тот же разговор, в том числе после перезапуска бота.
+                Отправляйте задачи обычным текстом. Следующие сообщения продолжают тот же разговор, в том числе после перезапуска бота. Claude Code удаляет старые сессии (по умолчанию через 30 дней).
 
-                /menu — модель, reasoning и доступ
+                /menu — модель, effort и доступ
                 /status — сессия и выполняемая задача
                 /cancel — запросить остановку задачи
                 /new — удалить текущий контекст
-                /model, /reasoning, /mode — выбор настройки
+                /model, /effort, /mode — выбор настройки
                 /ping — проверить связь
 
                 Одна задача за раз. Во время работы новые запросы не ставятся в очередь. Смена настроек относится к следующим запросам.
 
-                /new сохраняет настройки и удаляет текущую Codex-сессию. Сообщения Telegram и изменения на VPS сохраняются.
+                /new сохраняет настройки и удаляет текущую сессию Claude Code. Сообщения Telegram и изменения на VPS сохраняются.
 
-                Длинные ответы приходят файлом. Неизвестные команды не отправляются в Codex.
+                Длинные ответы приходят файлом. Неизвестные команды не отправляются в Claude.
                 """, menus.mainButtons());
     }
 
@@ -511,7 +510,7 @@ public class TelegramPollingService {
         private final long chatId;
         private final int replyTo;
         private final String preview;
-        private final CodexSettings snapshot;
+        private final ClaudeSettings snapshot;
         private volatile String phase;
         private volatile int messageId;
         private volatile long nextUpdateNanos;
@@ -519,7 +518,7 @@ public class TelegramPollingService {
         private volatile boolean cancelRequested;
         private volatile boolean finishing;
 
-        private ActiveTask(long chatId, int replyTo, String prompt, CodexSettings snapshot, String phase) {
+        private ActiveTask(long chatId, int replyTo, String prompt, ClaudeSettings snapshot, String phase) {
             this.chatId = chatId;
             this.replyTo = replyTo;
             this.preview = TelegramTextFormatter.clip(prompt.replaceAll("\\s+", " ").strip(), 100);

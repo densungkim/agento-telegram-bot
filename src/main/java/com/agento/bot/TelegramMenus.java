@@ -15,12 +15,10 @@ import static com.agento.bot.TelegramClient.Button;
 public class TelegramMenus {
 
     private static final int PAGE_SIZE = 8;
-    private final CodexSettingsService settings;
-    private final BotProperties properties;
+    private final ClaudeSettingsService settings;
 
-    public TelegramMenus(CodexSettingsService settings, BotProperties properties) {
+    public TelegramMenus(ClaudeSettingsService settings) {
         this.settings = settings;
-        this.properties = properties;
     }
 
     public Screen main(String notice) {
@@ -35,9 +33,6 @@ public class TelegramMenus {
     }
 
     public Screen options(String kind, int page) {
-        if (kind.equals("reasoning") && !settings.allowedModels().contains(settings.current().model())) {
-            return main("Сначала выберите актуальную модель через /model.");
-        }
         Choices choices = choices(kind);
         int lastPage = Math.max(0, (choices.values().size() - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 0, lastPage);
@@ -64,19 +59,17 @@ public class TelegramMenus {
         }
         rows.add(List.of(new Button("‹ Меню", "menu")));
         String description = switch (kind) {
-            case "model" -> "«Как в CLI» использует конфигурацию Codex. Доступ зависит от аккаунта."
-                    + "\nПрофиль каталога: " + properties.codex().authMode()
-                    + ". Несовместимый reasoning при смене модели сбрасывается на default.";
-            case "reasoning" -> "Модель: " + settings.current().model()
-                    + "\nПоказаны только совместимые уровни. Более высокий уровень может требовать больше времени и квоты."
-                    + (settings.current().usesDefaultModel() ? "\nДля ручного уровня сначала выберите конкретную модель." : "");
-            case "mode" -> "Чтение — просмотр данных. Рабочий каталог — запись в его пределах."
-                    + "\nПолный доступ — без sandbox и подтверждений Codex.";
+            case "model" -> "«Как в CLI» использует конфигурацию Claude Code. Доступ зависит от подписки.";
+            case "effort" -> "Более высокий уровень может требовать больше времени и лимита."
+                    + "\nЕсли модель не поддерживает уровень, Claude Code берёт ближайший допустимый ниже.";
+            case "mode" -> "Чтение — просмотр данных и читающие команды."
+                    + "\nРабочий каталог — правка файлов и команды в sandbox, только внутри каталога, без сети."
+                    + "\nПолный доступ — без проверок разрешений Claude Code.";
             default -> throw new IllegalArgumentException("Неизвестное меню.");
         };
         String title = switch (kind) {
             case "model" -> "Модель";
-            case "reasoning" -> "Уровень reasoning";
+            case "effort" -> "Уровень effort";
             case "mode" -> "Режим доступа";
             default -> "";
         };
@@ -97,15 +90,15 @@ public class TelegramMenus {
         return choices(kind).signature().equals(signature);
     }
 
-    public String summary(CodexSettings value) {
-        return "**Модель:** " + (value.usesDefaultModel() ? "как в Codex CLI" : value.model())
-                + "\n**Reasoning:** " + settings.reasoningDescription(value)
+    public String summary(ClaudeSettings value) {
+        return "**Модель:** " + (value.usesDefaultModel() ? "как в Claude Code" : value.model())
+                + "\n**Effort:** " + settings.effortDescription(value)
                 + "\n**Доступ:** " + label("mode", value.accessMode());
     }
 
     public List<List<Button>> mainButtons() {
         return List.of(
-                List.of(new Button("Модель", "models"), new Button("Reasoning", "reasoning")),
+                List.of(new Button("Модель", "models"), new Button("Effort", "effort")),
                 List.of(new Button("Доступ", "modes"), new Button("Статус", "status")),
                 List.of(new Button("Сбросить контекст", "new"), new Button("Помощь", "help")),
                 List.of(new Button("Отменить текущую задачу", "cancel"))
@@ -113,21 +106,20 @@ public class TelegramMenus {
     }
 
     private Choices choices(String kind) {
-        CodexSettings selected = settings.current();
+        ClaudeSettings selected = settings.current();
         List<String> values = switch (kind) {
             case "model" -> settings.allowedModels();
-            case "reasoning" -> settings.allowedReasoningEfforts();
+            case "effort" -> settings.allowedEfforts();
             case "mode" -> settings.allowedAccessModes();
             default -> throw new IllegalArgumentException("Неизвестное меню.");
         };
         String value = switch (kind) {
             case "model" -> selected.model();
-            case "reasoning" -> selected.reasoningEffort();
+            case "effort" -> selected.effort();
             case "mode" -> selected.accessMode();
             default -> "";
         };
-        String context = kind.equals("reasoning") ? selected.model() : kind;
-        return new Choices(values, value, fingerprint(context + "\n" + String.join("\n", values)));
+        return new Choices(values, value, fingerprint(kind + "\n" + String.join("\n", values)));
     }
 
     private String label(String kind, String value) {
@@ -139,7 +131,7 @@ public class TelegramMenus {
                 default -> value;
             };
         }
-        return TelegramTextFormatter.clip(value.equals(CodexSettings.DEFAULT)
+        return TelegramTextFormatter.clip(value.equals(ClaudeSettings.DEFAULT)
                 ? (kind.equals("model") ? "Как в CLI" : "По умолчанию") : value, 40);
     }
 

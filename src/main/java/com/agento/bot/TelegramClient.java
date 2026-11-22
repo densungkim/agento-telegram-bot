@@ -123,7 +123,7 @@ public class TelegramClient {
     }
 
     public void sendResult(long chatId, String result, int replyTo, String taskId) {
-        String text = result == null || result.isBlank() ? "Codex не вернул текст ответа." : result;
+        String text = result == null || result.isBlank() ? "Claude Code не вернул текст ответа." : result;
         if (text.length() <= messageMaxLength) {
             sendScreen(chatId, text, List.of(), replyTo);
             return;
@@ -142,7 +142,7 @@ public class TelegramClient {
         LinkedMultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("chat_id", Long.toString(chatId));
         body.add("document", document);
-        body.add("caption", "Ответ Codex · задача #" + taskId + "\nПолный текст в UTF-8, без обрезки.");
+        body.add("caption", "Ответ Claude · задача #" + taskId + "\nПолный текст в UTF-8, без обрезки.");
         if (replyTo > 0) {
             body.add("reply_parameters", mapper.writeValueAsString(replyParameters(replyTo)));
         }

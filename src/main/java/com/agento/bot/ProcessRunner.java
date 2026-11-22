@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -32,8 +33,15 @@ public class ProcessRunner {
 
     public CommandResult run(List<String> command, File workdir, Duration timeout, String input,
                              Map<String, String> environment, Consumer<String> stdoutListener) {
+        return run(command, workdir, timeout, input, environment, Set.of(), stdoutListener);
+    }
+
+    public CommandResult run(List<String> command, File workdir, Duration timeout, String input,
+                             Map<String, String> environment, Set<String> unsetEnvironment,
+                             Consumer<String> stdoutListener) {
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.directory(workdir);
+        processBuilder.environment().keySet().removeAll(unsetEnvironment);
         processBuilder.environment().putAll(environment);
         processBuilder.redirectErrorStream(stdoutListener == null);
         Object listenerLock = new Object();
@@ -65,7 +73,7 @@ public class ProcessRunner {
                                 try {
                                     stdoutListener.accept(line);
                                 } catch (RuntimeException e) {
-                                    listenerError.set("Не удалось обработать событие Codex: " + e.getMessage());
+                                    listenerError.set("Не удалось обработать событие Claude Code: " + e.getMessage());
                                     cancelActiveProcess();
                                 }
                             }
@@ -98,7 +106,7 @@ public class ProcessRunner {
                 try {
                     readOutputWithTimeout(eventsFuture);
                 } catch (Exception ignored) {
-                    // Preserve cancellation while giving a buffered thread.started event a chance to persist.
+                    // Preserve cancellation while giving a buffered system/init event a chance to confirm the session.
                 }
             }
             Thread.currentThread().interrupt();

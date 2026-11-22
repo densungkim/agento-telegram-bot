@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "agentobot")
 public record BotProperties(
         Telegram telegram,
-        Codex codex
+        Claude claude
 ) {
     public record Telegram(
             String token,
@@ -15,22 +15,19 @@ public record BotProperties(
     ) {
     }
 
-    public record Codex(
+    public record Claude(
             String command,
             String workdir,
             long timeoutSeconds,
             int maxOutputChars,
             String model,
-            String reasoningEffort,
+            String effort,
             String accessMode,
-            boolean skipGitRepoCheck,
             String systemPrompt,
             String settingsFile,
             String sessionFile,
-            String authMode,
-            String modelCatalogFile,
             String allowedModels,
-            String allowedReasoningEfforts,
+            String allowedEfforts,
             String allowedAccessModes
     ) {
     }
