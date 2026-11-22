@@ -4,14 +4,15 @@
 
 | # | Step | Status | Effort | Commit |
 |---|------|--------|--------|--------|
-| 1 | Prepare the oracle-free server | ▶ next | medium | — |
-| 2 | Branch `oracle-free` with its own deploy workflow | ⏳ todo | medium | — |
+| 1 | Prepare the oracle-free server | ✅ done | medium | — |
+| 2 | Branch `oracle-free` with its own deploy workflow | ▶ next | medium | — |
 | 3 | README on `oracle-free`: independent branch | ⏳ todo | low | — |
 | 4 | Secrets commands, deploy, check | ⏳ todo | low | — |
 
 Legend: ✅ done · 🔄 in progress · ▶ next · ⏳ todo. Model: always Opus 5.5.
 
-**Resume here:** Plan created. Next: Step 1, first sub-task (create user `agento`).
+**Resume here:** Step 1 done (server ready for `agento`). Next: Step 2 — branch `oracle-free` already exists (`6eda826`);
+next sub-task is the workflow with `*_ORACLE_FREE` secrets.
 
 ### How to use this file
 - Source of truth for progress. Re-read it at session start and after context compaction, before doing anything.
@@ -50,26 +51,28 @@ Required: `VPS_HOST_ORACLE_FREE`, `VPS_SSH_KEY_ORACLE_FREE` (private key `vps_ag
 ---
 
 ## Step 1 — Prepare the oracle-free server (medium)
-- [ ] User `agento` (home `/home/agento`, shell bash), member of group `docker`.
-- [ ] `~agento/.ssh/authorized_keys` with `vps_agento_ed25519.pub` (mode 700/600); add SSH alias `oracle-free-agento`
-      locally only if the user wants it.
-- [ ] **Ask user first:** Java 25 source for aarch64 — Ubuntu package `openjdk-25-jre-headless` (if available for 24.04) or
-      Temurin apt repository (same distribution as CI).
-- [ ] Install Java 25 and check `java -version` as `agento` in a non-interactive SSH session.
-- [ ] `apt-get install bubblewrap socat` + AppArmor profile `/etc/apparmor.d/bwrap` (same as contabo); check `bwrap` as `agento`.
-- [ ] Claude Code 2.1.330 with the native installer as `agento` (`linux-arm64` build); check `claude --version`.
-- [ ] Check as `agento`: `docker ps` works, `/home/agento` is writable.
+- [x] User `agento` created (uid 1003, home `/home/agento`, bash), member of group `docker`.
+- [x] `~agento/.ssh/authorized_keys` with `vps_agento_ed25519.pub` (700/600); key login `agento@<oracle-free host>` works.
+      No local SSH alias added.
+- [x] **Ask user first:** Java — the user installed sdkman + Temurin 25.0.5 for `agento` himself (sdkman of `ubuntu` is not
+      visible to `agento`).
+- [x] `java -version` as `agento` in a non-interactive SSH session (profile + sdkman init, like the workflow):
+      Temurin 25.0.5+8, `/home/agento/.sdkman/candidates/java/current/bin/java`.
+- [x] `bubblewrap` + `socat` installed, AppArmor profile `/etc/apparmor.d/bwrap` loaded; `bwrap` works as `agento`.
+      `needrestart` deferred a `docker.service` restart — Docker was not restarted.
+- [x] Claude Code 2.1.330 (native, arm64) in `~/.local/bin/claude` for `agento`.
+- [x] As `agento`: `docker ps` works (14 running containers), `/home/agento` is writable.
 
 **Done when:** `ssh` as `agento` works with the key, and Java 25, Claude Code, `docker` and `bwrap` work for `agento`.
 
 ## Step 2 — Branch `oracle-free` with its own deploy workflow (medium)
-- [ ] Create branch `oracle-free` from the current `master` (one-time starting point; never merged afterwards).
-- [ ] Workflow on `oracle-free`: secrets with `_ORACLE_FREE` suffix (mapped to the same env names inside the job), own name and
-      concurrency group (`agento-bot-oracle-free-deploy`), `workflow_dispatch` only.
-- [ ] Guard: the workflow on `oracle-free` refuses to run from another branch (`github.ref_name`), so a wrong branch can never
-      deploy contabo code with oracle-free secrets or vice versa. **Ask user first** whether `master`'s workflow gets the
-      mirror guard (that is a change on `master`).
-- [ ] Syntax check (`bash -n` on shell blocks); `mvn -B -q package -DskipTests`.
+- [x] Branch `oracle-free` created from `master` at `c313aa3`; this plan committed there (`6eda826`).
+- [x] Workflow on `oracle-free` (`.github/workflows/deploy.yml`, same file name): all 29 secret references have the
+      `_ORACLE_FREE` suffix (env names inside the job unchanged), name "Build and deploy Agento Bot (oracle-free)",
+      concurrency group `agento-bot-oracle-free-deploy`, `workflow_dispatch` only; error texts name the new secrets.
+- [x] Guard: first step "Check branch" fails unless `github.ref_name == oracle-free`.
+- [ ] **Ask user first:** mirror guard in `master`'s workflow (refuse to run outside `master`) — a change on `master`.
+- [x] Syntax: `bash -n` on the guard, prepare and remote shell blocks; `mvn -B -q package -DskipTests` passes.
 
 **Done when:** branch `oracle-free` exists and its workflow reads only `*_ORACLE_FREE` secrets and deploys only from itself.
 
