@@ -15,6 +15,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # master deploys only to contabo; branch oracle-free has its own workflow and is never merged with master.
+      - name: Check branch
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_NAME" != "master" ]; then
+            echo "This workflow deploys contabo and must run on branch master, not '$REF_NAME'."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
