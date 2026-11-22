@@ -59,44 +59,46 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID }}
           TELEGRAM_MESSAGE_MAX_LENGTH: ${{ secrets.TELEGRAM_MESSAGE_MAX_LENGTH }}
-          CODEX_COMMAND: ${{ secrets.CODEX_COMMAND }}
-          CODEX_WORKDIR: ${{ secrets.CODEX_WORKDIR }}
-          CODEX_TIMEOUT_SECONDS: ${{ secrets.CODEX_TIMEOUT_SECONDS }}
-          CODEX_MAX_OUTPUT_CHARS: ${{ secrets.CODEX_MAX_OUTPUT_CHARS }}
-          CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
-          CODEX_REASONING_EFFORT: ${{ secrets.CODEX_REASONING_EFFORT }}
-          CODEX_ACCESS_MODE: ${{ secrets.CODEX_ACCESS_MODE }}
-          CODEX_SETTINGS_FILE: ${{ secrets.CODEX_SETTINGS_FILE }}
-          CODEX_SESSION_FILE: ${{ secrets.CODEX_SESSION_FILE }}
-          CODEX_AUTH_MODE: ${{ secrets.CODEX_AUTH_MODE }}
-          CODEX_MODEL_CATALOG_FILE: ${{ secrets.CODEX_MODEL_CATALOG_FILE }}
-          CODEX_ALLOWED_MODELS: ${{ secrets.CODEX_ALLOWED_MODELS }}
-          CODEX_ALLOWED_REASONING_EFFORTS: ${{ secrets.CODEX_ALLOWED_REASONING_EFFORTS }}
-          CODEX_ALLOWED_ACCESS_MODES: ${{ secrets.CODEX_ALLOWED_ACCESS_MODES }}
-          CODEX_SYSTEM_PROMPT: ${{ secrets.CODEX_SYSTEM_PROMPT }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CONFIG_DIR: ${{ secrets.CLAUDE_CONFIG_DIR }}
+          CLAUDE_COMMAND: ${{ secrets.CLAUDE_COMMAND }}
+          CLAUDE_WORKDIR: ${{ secrets.CLAUDE_WORKDIR }}
+          CLAUDE_TIMEOUT_SECONDS: ${{ secrets.CLAUDE_TIMEOUT_SECONDS }}
+          CLAUDE_MAX_OUTPUT_CHARS: ${{ secrets.CLAUDE_MAX_OUTPUT_CHARS }}
+          CLAUDE_MODEL: ${{ secrets.CLAUDE_MODEL }}
+          CLAUDE_EFFORT: ${{ secrets.CLAUDE_EFFORT }}
+          CLAUDE_ACCESS_MODE: ${{ secrets.CLAUDE_ACCESS_MODE }}
+          CLAUDE_SETTINGS_FILE: ${{ secrets.CLAUDE_SETTINGS_FILE }}
+          CLAUDE_SESSION_FILE: ${{ secrets.CLAUDE_SESSION_FILE }}
+          CLAUDE_ALLOWED_MODELS: ${{ secrets.CLAUDE_ALLOWED_MODELS }}
+          CLAUDE_ALLOWED_EFFORTS: ${{ secrets.CLAUDE_ALLOWED_EFFORTS }}
+          CLAUDE_ALLOWED_ACCESS_MODES: ${{ secrets.CLAUDE_ALLOWED_ACCESS_MODES }}
+          CLAUDE_SYSTEM_PROMPT: ${{ secrets.CLAUDE_SYSTEM_PROMPT }}
         run: |
           set -euo pipefail
           mkdir -p deploy
           cp target/agento-telegram-bot-0.0.1-SNAPSHOT.jar deploy/app.jar
           cp scripts/agento-bot-status.sh deploy/agento-bot-status.sh
           cp scripts/agento-bot-stop.sh deploy/agento-bot-stop.sh
-          cp scripts/codex-version.txt deploy/codex-version.txt
+          cp scripts/claude-version.txt deploy/claude-version.txt
 
           : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN secret is required}"
           : "${TELEGRAM_ALLOWED_CHAT_ID:?TELEGRAM_ALLOWED_CHAT_ID secret is required}"
+          : "${CLAUDE_CODE_OAUTH_TOKEN:?CLAUDE_CODE_OAUTH_TOKEN secret is required (claude setup-token)}"
           : "${TELEGRAM_MESSAGE_MAX_LENGTH:=3900}"
 
-          : "${CODEX_COMMAND:=codex}"
-          : "${CODEX_WORKDIR:=/home/agento}"
-          : "${CODEX_TIMEOUT_SECONDS:=900}"
-          : "${CODEX_MAX_OUTPUT_CHARS:=30000}"
-          : "${CODEX_MODEL:=default}"
-          : "${CODEX_REASONING_EFFORT:=default}"
-          : "${CODEX_ACCESS_MODE:=full-access}"
-          : "${CODEX_SETTINGS_FILE:=./agento-settings.properties}"
-          : "${CODEX_SESSION_FILE:=./agento-session.properties}"
-          : "${CODEX_AUTH_MODE:=chatgpt}"
-          : "${CODEX_ALLOWED_ACCESS_MODES:=read-only,workspace,full-access}"
+          : "${CLAUDE_COMMAND:=claude}"
+          : "${CLAUDE_WORKDIR:=/home/agento}"
+          : "${CLAUDE_TIMEOUT_SECONDS:=900}"
+          : "${CLAUDE_MAX_OUTPUT_CHARS:=30000}"
+          : "${CLAUDE_MODEL:=default}"
+          : "${CLAUDE_EFFORT:=default}"
+          : "${CLAUDE_ACCESS_MODE:=full-access}"
+          : "${CLAUDE_SETTINGS_FILE:=./agento-settings.properties}"
+          : "${CLAUDE_SESSION_FILE:=./agento-session.properties}"
+          : "${CLAUDE_ALLOWED_MODELS:=default,opus,sonnet,haiku,fable}"
+          : "${CLAUDE_ALLOWED_EFFORTS:=default,low,medium,high,xhigh,max}"
+          : "${CLAUDE_ALLOWED_ACCESS_MODES:=read-only,workspace,full-access}"
 
           write_env() {
             local key="$1"
@@ -105,28 +107,34 @@ jobs:
           }
 
           : > deploy/app.env
+          chmod 600 deploy/app.env
           write_env TELEGRAM_BOT_TOKEN
           write_env TELEGRAM_ALLOWED_CHAT_ID
           write_env TELEGRAM_MESSAGE_MAX_LENGTH
-          write_env CODEX_COMMAND
-          write_env CODEX_WORKDIR
-          write_env CODEX_TIMEOUT_SECONDS
-          write_env CODEX_MAX_OUTPUT_CHARS
-          write_env CODEX_MODEL
-          write_env CODEX_REASONING_EFFORT
-          write_env CODEX_ACCESS_MODE
-          write_env CODEX_SETTINGS_FILE
-          write_env CODEX_SESSION_FILE
-          write_env CODEX_AUTH_MODE
-          write_env CODEX_MODEL_CATALOG_FILE
-          write_env CODEX_ALLOWED_MODELS
-          write_env CODEX_ALLOWED_REASONING_EFFORTS
-          write_env CODEX_ALLOWED_ACCESS_MODES
-          if [ -n "${CODEX_SYSTEM_PROMPT:-}" ]; then
-            write_env CODEX_SYSTEM_PROMPT
+          write_env CLAUDE_CODE_OAUTH_TOKEN
+          write_env CLAUDE_COMMAND
+          write_env CLAUDE_WORKDIR
+          write_env CLAUDE_TIMEOUT_SECONDS
+          write_env CLAUDE_MAX_OUTPUT_CHARS
+          write_env CLAUDE_MODEL
+          write_env CLAUDE_EFFORT
+          write_env CLAUDE_ACCESS_MODE
+          write_env CLAUDE_SETTINGS_FILE
+          write_env CLAUDE_SESSION_FILE
+          write_env CLAUDE_ALLOWED_MODELS
+          write_env CLAUDE_ALLOWED_EFFORTS
+          write_env CLAUDE_ALLOWED_ACCESS_MODES
+          if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+            write_env CLAUDE_CONFIG_DIR
+          fi
+          if [ -n "${CLAUDE_SYSTEM_PROMPT:-}" ]; then
+            write_env CLAUDE_SYSTEM_PROMPT
           fi
 
-          printf '%s=%q\n' CODEX_SKIP_GIT_REPO_CHECK true >> deploy/app.env
+          # Read by the Claude Code CLI itself: hide credentials from the commands Claude runs,
+          # and keep the installed version until it is updated deliberately.
+          printf '%s=%q\n' CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 1 >> deploy/app.env
+          printf '%s=%q\n' DISABLE_AUTOUPDATER 1 >> deploy/app.env
 
       - name: Copy files to VPS
         env:
@@ -141,7 +149,7 @@ jobs:
           : "${VPS_APP_DIR:=/home/agento/agento-bot}"
 
           ssh -i ~/.ssh/agento_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_APP_DIR/.incoming' && rm -f '$VPS_APP_DIR/.incoming/'*"
-          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh deploy/codex-version.txt "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/.incoming/"
+          scp -i ~/.ssh/agento_deploy_key -P "$VPS_PORT" deploy/app.jar deploy/app.env deploy/agento-bot-status.sh deploy/agento-bot-stop.sh deploy/claude-version.txt "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/.incoming/"
 
       - name: Restart bot on VPS
         env:
@@ -165,7 +173,7 @@ jobs:
           [ -f "$INCOMING_DIR/app.env" ] || { echo "incoming app.env not found in $INCOMING_DIR"; exit 1; }
           [ -f "$INCOMING_DIR/agento-bot-status.sh" ] || { echo "incoming agento-bot-status.sh not found in $INCOMING_DIR"; exit 1; }
           [ -f "$INCOMING_DIR/agento-bot-stop.sh" ] || { echo "incoming agento-bot-stop.sh not found in $INCOMING_DIR"; exit 1; }
-          [ -f "$INCOMING_DIR/codex-version.txt" ] || { echo "incoming codex-version.txt not found in $INCOMING_DIR"; exit 1; }
+          [ -f "$INCOMING_DIR/claude-version.txt" ] || { echo "incoming claude-version.txt not found in $INCOMING_DIR"; exit 1; }
 
           load_user_env() {
             set +e +u
@@ -198,14 +206,12 @@ jobs:
             fi
           fi
 
-          if [ "${CODEX_COMMAND:-codex}" = "codex" ] && ! command -v codex >/dev/null 2>&1; then
-            FOUND_CODEX=$(find "$HOME" \( -type f -o -type l \) -path '*/bin/codex' -executable 2>/dev/null | sort -V | tail -n 1 || true)
-            if [ -n "$FOUND_CODEX" ]; then
-              export CODEX_COMMAND="$FOUND_CODEX"
-            fi
+          # The native installer puts the launcher into ~/.local/bin, which a non-interactive SSH session may not have in PATH.
+          if [ "${CLAUDE_COMMAND:-claude}" = "claude" ] && ! command -v claude >/dev/null 2>&1 && [ -x "$HOME/.local/bin/claude" ]; then
+            export CLAUDE_COMMAND="$HOME/.local/bin/claude"
           fi
-          if [ "${CODEX_COMMAND:-codex}" != "codex" ] && [ -f "$CODEX_COMMAND" ]; then
-            export PATH="$(dirname "$CODEX_COMMAND"):$PATH"
+          if [ "${CLAUDE_COMMAND:-claude}" != "claude" ] && [ -f "$CLAUDE_COMMAND" ]; then
+            export PATH="$(dirname "$CLAUDE_COMMAND"):$PATH"
           fi
 
           JAVA_VERSION_OUTPUT=$("$JAVA_COMMAND" -version 2>&1) || { echo "Java is not available in this non-interactive SSH session"; echo "PATH=$PATH"; exit 1; }
@@ -219,32 +225,33 @@ jobs:
             exit 1
           fi
 
-          CODEX_VERSION_OUTPUT=$("$CODEX_COMMAND" --version) || { echo "Codex CLI is not available. Install it on VPS first."; echo "PATH=$PATH"; exit 1; }
-          if [[ ! "$CODEX_VERSION_OUTPUT" =~ ^codex-cli[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "A stable Codex CLI release is required; found: $CODEX_VERSION_OUTPUT"
+          [ "$(id -u)" -ne 0 ] || { echo "The bot must not run as root: Claude Code refuses bypassPermissions for root."; exit 1; }
+
+          CLAUDE_VERSION_OUTPUT=$("$CLAUDE_COMMAND" --version) || { echo "Claude Code is not available. Run scripts/install-claude-on-vps.sh as the bot user first."; echo "PATH=$PATH"; exit 1; }
+          if [[ ! "$CLAUDE_VERSION_OUTPUT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]+\(Claude\ Code\)$ ]]; then
+            echo "Cannot determine the Claude Code version: $CLAUDE_VERSION_OUTPUT"
             exit 1
           fi
-          INSTALLED_CODEX_VERSION="${BASH_REMATCH[1]}"
-          REQUIRED_CODEX_VERSION=$(tr -d '\r\n' < "$INCOMING_DIR/codex-version.txt")
-          if [[ ! "$REQUIRED_CODEX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid minimum Codex version in codex-version.txt"
+          INSTALLED_CLAUDE_VERSION="${BASH_REMATCH[1]}"
+          REQUIRED_CLAUDE_VERSION=$(tr -d '\r\n' < "$INCOMING_DIR/claude-version.txt")
+          if [[ ! "$REQUIRED_CLAUDE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid minimum Claude Code version in claude-version.txt"
             exit 1
           fi
-          LOWEST_CODEX_VERSION=$(printf '%s\n' "$REQUIRED_CODEX_VERSION" "$INSTALLED_CODEX_VERSION" | sort -V | head -n 1)
-          if [ "$LOWEST_CODEX_VERSION" != "$REQUIRED_CODEX_VERSION" ]; then
-            echo "Codex CLI $REQUIRED_CODEX_VERSION or newer is required; found $INSTALLED_CODEX_VERSION."
-            echo "Run scripts/install-codex-on-vps.sh from the updated repository as the bot user."
+          LOWEST_CLAUDE_VERSION=$(printf '%s\n' "$REQUIRED_CLAUDE_VERSION" "$INSTALLED_CLAUDE_VERSION" | sort -V | head -n 1)
+          if [ "$LOWEST_CLAUDE_VERSION" != "$REQUIRED_CLAUDE_VERSION" ]; then
+            echo "Claude Code $REQUIRED_CLAUDE_VERSION or newer is required; found $INSTALLED_CLAUDE_VERSION."
+            echo "Run 'claude update' or scripts/install-claude-on-vps.sh from the updated repository as the bot user."
             exit 1
           fi
 
-          "$CODEX_COMMAND" login status >/dev/null 2>&1 || { echo "Codex is not authenticated for this VPS user. Run codex login as the bot user first."; exit 1; }
-          [ -d "$CODEX_WORKDIR" ] && [ -x "$CODEX_WORKDIR" ] || { echo "CODEX_WORKDIR is not accessible to the bot user: $CODEX_WORKDIR"; exit 1; }
-          case "$CODEX_AUTH_MODE" in
-            chatgpt|api-key) ;;
-            *) echo "CODEX_AUTH_MODE must be chatgpt or api-key"; exit 1 ;;
-          esac
-          if [ -n "${CODEX_MODEL_CATALOG_FILE:-}" ]; then
-            [ -f "$CODEX_MODEL_CATALOG_FILE" ] && [ -r "$CODEX_MODEL_CATALOG_FILE" ] || { echo "CODEX_MODEL_CATALOG_FILE is not readable: $CODEX_MODEL_CATALOG_FILE"; exit 1; }
+          # Same environment as the bot: the token from app.env, without an API key that would win over it.
+          env -u ANTHROPIC_API_KEY "$CLAUDE_COMMAND" auth status >/dev/null 2>&1 || { echo "Claude Code is not authenticated with CLAUDE_CODE_OAUTH_TOKEN. Create a token with 'claude setup-token' and update the secret."; exit 1; }
+          [ -d "$CLAUDE_WORKDIR" ] && [ -x "$CLAUDE_WORKDIR" ] || { echo "CLAUDE_WORKDIR is not accessible to the bot user: $CLAUDE_WORKDIR"; exit 1; }
+          if [[ ",$CLAUDE_ALLOWED_ACCESS_MODES," == *",workspace,"* ]]; then
+            for tool in bwrap socat; do
+              command -v "$tool" >/dev/null 2>&1 || echo "WARNING: $tool is missing; tasks in the workspace access mode will fail until bubblewrap and socat are installed."
+            done
           fi
 
           LEGACY_APP_DIR="$HOME"
@@ -255,12 +262,13 @@ jobs:
 
           APP_DIR="$APP_DIR" bash "$INCOMING_DIR/agento-bot-stop.sh"
 
-          rm -f app.jar app.env agento-bot-status.sh agento-bot-stop.sh app.log app.pid
+          rm -f app.jar app.env agento-bot-status.sh agento-bot-stop.sh app.log app.pid codex-version.txt
           mv "$INCOMING_DIR/app.jar" app.jar
           mv "$INCOMING_DIR/app.env" app.env
           mv "$INCOMING_DIR/agento-bot-status.sh" agento-bot-status.sh
           mv "$INCOMING_DIR/agento-bot-stop.sh" agento-bot-stop.sh
-          mv "$INCOMING_DIR/codex-version.txt" codex-version.txt
+          mv "$INCOMING_DIR/claude-version.txt" claude-version.txt
+          chmod 600 app.env
           chmod +x agento-bot-status.sh agento-bot-stop.sh
 
           nohup "$JAVA_COMMAND" -jar "$APP_DIR/app.jar" > app.log 2>&1 &
